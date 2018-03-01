@@ -334,8 +334,33 @@ int cbm_lookup(uint16_t *rules, uint16_t nrules, int rulesum, cbm_t *cbm_set)
 }
 
 
+void dump_phase_table(int *table, int n1, int n2)
+{
+    int	    i, j, tid, cbm_id1, cbm_id2, run_len;
+
+    cbm_id1 = table[0];
+    run_len = 0;
+    tid = 0;
+    for (i = 0; i < n1; i++) {
+	fprintf(stderr, "cbm0[%d]\n", i);
+	for (j = 0; j < n2; j++) {
+	    cbm_id2 = table[tid++];
+	    if (cbm_id2 == cbm_id1) {
+		run_len++;
+	    } else {
+		fprintf(stderr, "%d#%d\n", cbm_id1, run_len);
+		//printf("table[%d]: %d#%d\n", i, eqid, run_len);
+		cbm_id1 = cbm_id2;
+		run_len = 1;
+	    }
+	}
+	printf("%d#%d\n", cbm_id1, run_len);
+    }
+}
+
+
 // print the phase table with run length of eqid in the table >= thresh_rl
-void dump_phase_table(int *table, int len, int thresh_rlen)
+void phase_table_stats(int *table, int len, int thresh_rlen)
 {
     int	    i, eqid, eqid1, run_len;
 
@@ -598,6 +623,7 @@ int p1_crossprod()
     crossprod_2chunk(1, 0, cbms1, n1, cbms2, n2);
     printf("chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[1][0], table_size);
     do_cbm_stats(1, 0, 0);
+    //dump_phase_table(phase_tables[1][0], n1, n2);
 
     // DIP[31:16] x DIP[15:0]
     n1 = phase_num_cbms[0][3];
@@ -610,6 +636,7 @@ int p1_crossprod()
     crossprod_2chunk(1, 1, cbms1, n1, cbms2, n2);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 1, phase_num_cbms[1][1], table_size);
     do_cbm_stats(1, 1, 0);
+    //dump_phase_table(phase_tables[1][1], n1, n2);
 
     // DP x SP
     n1 = phase_num_cbms[0][6];
@@ -622,6 +649,7 @@ int p1_crossprod()
     crossprod_2chunk(1, 2, cbms1, n1, cbms2, n2);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 2,phase_num_cbms[1][2], table_size);
     do_cbm_stats(1, 2, 0);
+    //dump_phase_table(phase_tables[1][2], n1, n2);
 
     //dump_intersect_stats();
     bzero(intersect_stats, MAXRULES*2*sizeof(long));
@@ -647,6 +675,7 @@ int p2_crossprod()
     crossprod_2chunk(2, 0, cbms1, n1, cbms2, n2);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[2][0], table_size);
     do_cbm_stats(2, 0, 0);
+    dump_phase_table(phase_tables[2][0], n1, n2);
 
     // PROTO x (DP x SP)
     n1 = phase_num_cbms[0][4];
