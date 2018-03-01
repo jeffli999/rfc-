@@ -557,8 +557,9 @@ int do_cbm_stats(int phase, int chunk, int flag)
 	stats[phase_tables[phase][chunk][i]].count++;
     qsort(stats, phase_num_cbms[phase][chunk], sizeof(cbm_stat_t), cbm_stat_cmp);
 
-    m = phase_table_sizes[phase][chunk] >> 6;
-    m = m <= 1 ? 2 : m;
+    // only look at CBMs contributing at least 1% of the phase table
+    m = phase_table_sizes[phase][chunk] / 100;
+    m = m < 8 ? 8 : m;
     for (i = 0; i < phase_num_cbms[phase][chunk]; i++) {
 	if (stats[i].count <= m)
 	    break;

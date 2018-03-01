@@ -1,0 +1,44 @@
+RFC Memory reduction methods: 
+1) CBM reduction
+2) Phase table compaction
+
+1.  Possbile CBM reduction methods:
+1.1 Last phase: each field value is concretized, rulelist => best-match rule becomes possbile,
+    this will reduce the number of CBMs of the last phase a great deal, although it does not
+    directly lead to table size reduction in the last phase, it produces a chance for table
+    compaction with less CBM ids (and more long-run sequences of identical CBM ids in the table.
+
+1.2 Intermediate phase: there are some chances, e.g., althoug with incomplete information on all
+    field values, if the first few rules in a CBM are guaranteed to cover any following rules in
+    the subspace at current phase, then the lower-prirority following rules can be safely removed
+    from the CBM without affecting correctness, this CBM simplification will reduce CBM numbers,
+    and directly leads to phase table size reduction at the next phase. The challenge is how to
+    judge the redundancy of the lower-priority rules in a CBM list efficiently. A simple method
+    would be: for the rest fields undecided at current phase, if an earlier rule r1 always covers
+    a later rule r2 in each of the rest fields, then r2 is redundant and can be removed from the
+    CBM rulelist. This is simple and safe, but it is unable to explore more sophiscated chances,
+    .e.g, {r1, r2, r3} together formulate a subspace in the rest fields which covers the subspace
+    of rule r4. In this case, r4 can also be safely removed, but it is very hard to represent
+    the subspace of a set of rules {r1, r2, r3} because it is often irregular spaces.
+
+2.  Possible phase table compaction methods:
+2.1 run-length based: a long-run CBM id in the phase table can be compacted with run-length
+    reprensentation. The chance can be evaluated to check whether a small portion of CBMs dominate
+    in the phase table. The challenge is: current phase table access is based on a very simple index
+    function: T_(n+1).cmbid = T1_n.idx * T2_n.size + T2_n.cbmid
+    with run-length encoding, a similar simple index function is needed, and space overhead on
+    the new phase table structure should be kept low. we can either apply run-length encoding, or
+    borrow the idea of multi-level page table sin OS VM management, if long-run CBM id sequence
+    are common
+2.2 blocking based: for phase tables T1 and T2, divide each table into blocks with fixed-size or
+    variable sizes. There are a few possible situations for crossproducting a block B1 in T1 and
+    a block B2 in T2:
+    a) B1 x B2: a single CBM entry in the next phase table
+    b) B1 x B2: each entry in B1 creates the same resulting block B3 in the next phase, and B3 has
+                the size of B2 (or less if considered duplicate entries in B3 are possible).
+    c) B1 x B2: every entry in B1 creates the same resulting CBM entry in B3, but different B1
+                entries create different CBM entries in B3. From another point of view, this is the
+		situation in b), where B1 and B2 exchange roles, but the size of the resulting B3
+		has the size of B1.
+    d) B1 x B2: other situations, where B3 has the size of |B1| x |B2| in the worst case.
+
