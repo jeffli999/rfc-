@@ -354,8 +354,12 @@ void dump_phase_table(int *table, int n1, int n2)
 		run_len = 1;
 	    }
 	}
-	printf("%d#%d\n", cbm_id1, run_len);
+	if (run_len > 1)
+	    fprintf(stderr, "%d#%d\n", cbm_id1, run_len);
+	run_len = 0;
+	cbm_id1 = table[tid];
     }
+    fprintf(stderr, "%d#%d\n", cbm_id1, run_len);
 }
 
 
@@ -775,6 +779,7 @@ void construct_rfc()
     t = clock();
     p2_crossprod();
     printf("***Phase 2 spent %lds\n\n", (clock()-t)/1000000);
+    return;
 
     t = clock();
     p3_crossprod();
