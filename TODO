@@ -1,3 +1,5 @@
+2018-03-01
+================================
 RFC Memory reduction methods: 
 1) CBM reduction
 2) Phase table compaction
@@ -42,3 +44,9 @@ RFC Memory reduction methods:
 		has the size of B1.
     d) B1 x B2: other situations, where B3 has the size of |B1| x |B2| in the worst case.
 
+
+2018-03-02
+=============
+Changes for CBM1 * CBM2:
+1. CBM1: cbm_id = (cbm-major, cbm-minor)
+2. cbm-major fields: major_base, minor_base, minor_low, major_high

@@ -60,7 +60,44 @@ long	hash_stats[10000];
 long	intersect_stats[MAXRULES*2];
 
 
+
 int do_cbm_stats(int phase, int chunk, int flag);
+
+
+int ilog2(unsigned int v)
+{
+    int	    i = 0;
+    while (v >>= 1) i++;
+    return i;
+}
+
+
+int do_rule_stats()
+{
+    int	    i, j, size[FIELDS];
+    int	    rule_sizes[FIELDS+1][32];
+
+    for (i = 0; i < FIELDS+1; i++) {
+	for (j = 0; j < 32; j++) rule_sizes[i][j] = 0;
+    }
+
+    for (i = 0; i < numrules; i++) {
+	for (j = 0; j < FIELDS; j++) {
+	    size[j] = ruleset[i].field[j].high - ruleset[i].field[j].low;
+	    size[j] = ilog2(size[j]);
+	    rule_sizes[j][size[j]]++;
+	}
+	size[FIELDS] = size[0] > size[1] ? size[0] : size[1];
+	rule_sizes[FIELDS][size[FIELDS]]++;
+    }
+
+    for (i = 0; i < FIELDS+1; i++) {
+	printf("Field[%d]\n", i);
+	for (j = 0; j < 32; j++) 
+	    if (rule_sizes[i][j] > 0)
+		printf("    %d: %d\n", j, rule_sizes[i][j]);
+    }
+}
 
 
 // statistics on the total number of rule comparisons in cbm_2intersect(), which is the primary bottleneck
@@ -331,6 +368,22 @@ int cbm_lookup(uint16_t *rules, uint16_t nrules, int rulesum, cbm_t *cbm_set)
     }
     hash_stats[i]++;
     return -1;
+}
+
+
+int cbm_rule_search(uint16_t rule, cbm_t *cbms, int ncbm)
+{
+    int		i,  j;
+
+    for (i = 0; i < ncbm; i++) {
+	for (j = 0; j < cbms[i].nrules; j++) {
+	    if (cbms[i].rules[j] == rule) {
+		printf("rule[%d] in cbm[%d]\n", rule, i);
+		break;
+	    } else if (cbms[i].rules[j] > rule)
+		break;
+	}
+    }
 }
 
 
@@ -625,7 +678,7 @@ int p1_crossprod()
     phase_table_sizes[1][0] = table_size;
     phase_tables[1][0] = (int *) malloc(table_size*sizeof(int));
     crossprod_2chunk(1, 0, cbms1, n1, cbms2, n2);
-    printf("chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[1][0], table_size);
+    printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[1][0], table_size);
     do_cbm_stats(1, 0, 0);
     //dump_phase_table(phase_tables[1][0], n1, n2);
 
