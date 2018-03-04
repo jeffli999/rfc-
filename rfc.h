@@ -23,5 +23,6 @@ typedef struct cbm_entry {
 
 typedef struct cbm_stat {
     int	id;
+    int gminor, lminor;
     int	count;
 } cbm_stat_t;

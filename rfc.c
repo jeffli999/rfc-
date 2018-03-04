@@ -23,6 +23,7 @@ const int shamt[MAXCHUNKS] = {0, 16, 0, 16, 0, 0, 0};
 
 extern flow_entry_t *flows;
 extern int	    num_flows;	// current number of flows
+extern int	    *rule_scales[FIELDS];
 
 FILE	*fpr;		// ruleset file
 FILE	*fpt;		// test packet trace file
@@ -326,6 +327,7 @@ int gen_endpoints()
     for (chunk = 0; chunk < MAXCHUNKS; chunk++) {
 	f = chunk_to_field[chunk];
 	k = shamt[chunk];
+	epoints[chunk][0] = 0;
 	for (i = 0; i < numrules; i++) {
 	    epoints[chunk][2*i+1] = (ruleset[i].field[f].low >> k) & 0xFFFF;
 	    epoints[chunk][2*i+2] = (ruleset[i].field[f].high >> k) & 0xFFFF;
@@ -621,6 +623,42 @@ static int cbm_stat_cmp(const void *p, const void *q)
 }
 
 
+int is_minor_rule(uint16_t rule, int field)
+{
+    return rule_scales[field][rule] == 0 ? 1 : 0;
+}
+
+
+// statistics on the number of minor rules for each CBM in field SIP or DIP in phase 1
+int cbm_minor_stats(int field)
+{
+    cbm_t	*cbms = phase_cbms[1][field];
+    cbm_stat_t	*stats;
+    int		ncbms, cross_field, i, r;
+    uint16_t	rule;
+
+    // if field is SIP, then cross_field DIP, and vice versa
+    cross_field = (field == 0) ? 1 : 0;	    
+    ncbms = phase_num_cbms[1][field];
+    stats = (cbm_stat_t *) calloc(ncbms, sizeof(cbm_stat_t));
+
+    printf("Field[%d] CBM minor rules:\n", field);
+    for (i = 0; i < ncbms; i++) {
+	stats[i].id = i;
+	for (r = 0; r < cbms[i].nrules; r++) {
+	    rule = cbms[i].rules[r];
+	    if (is_minor_rule(rule, field)) {
+		if (is_minor_rule(rule, cross_field))
+		    stats[i].lminor++;
+		else
+		    stats[i].gminor++;
+	    }
+	}
+	printf("    CBM[%d] %d rules: %d gminor, %d lminor\n", i, cbms[i].nrules, stats[i].gminor, stats[i].lminor);
+    }
+}
+
+
 // get the 10 most frequent CBMs in a phase table, and output them with their numbers of times in the phase table
 // flag = 1: output the detail of each cbm; flag = 0: no detail on each cbm
 int do_cbm_stats(int phase, int chunk, int flag)
@@ -679,7 +717,7 @@ int p1_crossprod()
     phase_tables[1][0] = (int *) malloc(table_size*sizeof(int));
     crossprod_2chunk(1, 0, cbms1, n1, cbms2, n2);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[1][0], table_size);
-    do_cbm_stats(1, 0, 0);
+    //do_cbm_stats(1, 0, 0);
     //dump_phase_table(phase_tables[1][0], n1, n2);
 
     // DIP[31:16] x DIP[15:0]
@@ -692,7 +730,7 @@ int p1_crossprod()
     phase_tables[1][1] = (int *) malloc(table_size*sizeof(int));
     crossprod_2chunk(1, 1, cbms1, n1, cbms2, n2);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 1, phase_num_cbms[1][1], table_size);
-    do_cbm_stats(1, 1, 0);
+    //do_cbm_stats(1, 1, 0);
     //dump_phase_table(phase_tables[1][1], n1, n2);
 
     // DP x SP
@@ -732,7 +770,9 @@ int p2_crossprod()
     crossprod_2chunk(2, 0, cbms1, n1, cbms2, n2);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[2][0], table_size);
     do_cbm_stats(2, 0, 0);
-    dump_phase_table(phase_tables[2][0], n1, n2);
+    //dump_phase_table(phase_tables[2][0], n1, n2);
+    cbm_minor_stats(0);
+    cbm_minor_stats(1);
 
     // PROTO x (DP x SP)
     n1 = phase_num_cbms[0][4];
@@ -941,7 +981,7 @@ int main(int argc, char* argv[])
 	create_flows();
 	write_flow_trace(fpt);
 	fclose(fpt);
-	return 1;   // aim to produce trace, no need for packet classification
+	//return 1;   // aim to produce trace, no need for packet classification
     }
 
     // constructing RFC tables

@@ -35,6 +35,12 @@ flow_entry_t	*flows;
 int		num_flows;  // current number of flows
 int		size_flows; // current memory size for flows
 
+// attribute each rule with the number of end points (in log2) covered by it
+// this is used for optimization based on CBM = CBM.major + CBM.minor, where small rules on a field
+// will be represented by their minor CBM, and maojor CBM only capures large rules
+int		*rule_scales[FIELDS];
+
+extern int ilog2(unsigned int v);
 
 
 // allocate memory and set the numbers for the hash table used for end point lookup
@@ -90,7 +96,11 @@ int lookup_epoint_hash(unsigned int point, int f)
 
 int point_cmp(const void *p, const void *q)
 {
-    return *(int *)p - *(int *)q;
+    if (*(unsigned int *)p > *(unsigned int *)q)
+	return 1;
+    else if (*(unsigned int *)p < *(unsigned int *)q)
+	return -1;
+    else return 0;
 }
 
 
@@ -111,12 +121,7 @@ void sort_epoints(int field)
     unsigned int    *p;
     int		    i, j = 0, hit;
 
-    qsort(p, num_epoints[field], sizeof(unsigned int), point_cmp);
-    for (i = 0; i < num_epoints[field]; i++) {
-	if (p[i] != p[j])
-	    p[j++] = p[i];
-    }
-    num_epoints[field] = j;
+    qsort(epoints[field], num_epoints[field], sizeof(unsigned int), point_cmp);
 }
 
 
@@ -262,6 +267,42 @@ void theory_flows()
 }
 
 
+// calculate how many end points a rule covers on a field
+int rule_covered_epoints(uint16_t rule, int f)
+{
+    unsigned int *key;
+    int	    *p1, *p2, n;
+
+    key = &ruleset[rule].field[f].low;
+    p1 = bsearch(key, epoints[f], num_epoints[f], sizeof(unsigned int), point_cmp);
+    key = &ruleset[rule].field[f].high;
+    p2 = bsearch(key, epoints[f], num_epoints[f], sizeof(unsigned int), point_cmp);
+    n = ilog2(p2 - p1);
+    return n;
+}
+
+
+// statistcis on the number of rules crossing different numbers of endpoints (2^0, 2^1, 2^2, ...)
+void calc_rule_scales()
+{
+    int		f, i, n, rule_sizes[FIELDS][32];
+
+    for (f = 0; f < FIELDS; f++)
+	rule_scales[f] = (int *) calloc(numrules, sizeof(int));
+
+    init_epoint_hash();
+    for (f = 0; f < FIELDS; f++) {
+	collect_all_rules(f);
+	gen_field_epoints(f, field_rules[f], num_field_rules[f]);
+	sort_epoints(f);
+	for (i = 0; i < num_field_rules[f]; i++) {
+	    n = rule_covered_epoints(field_rules[f][i], f); // Alert: in log2 numbers
+	    rule_scales[f][i] = n;
+	}
+    }
+}
+
+
 // The process works as follows:
 // 0. Pick the first field F[0], associate with F[0] the global ruleset (called R[0] in this context)
 // 1. Projecting end points P[0] on F[0] for the associated ruleset R[0]
@@ -285,7 +326,9 @@ void create_flows()
 
     init_epoint_hash();
     //theory_flows();
+    calc_rule_scales();
 
+    reset_epoint_hash(0);
     collect_all_rules(0);
     process_field(0);
 
