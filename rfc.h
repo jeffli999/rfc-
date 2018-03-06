@@ -5,13 +5,13 @@
 #define MAXCHUNKS	7
 #define PHASES		4
 
-struct range{
+typedef struct range{
     unsigned low;
     unsigned high;
-};
+} range_t;
 
 typedef struct pc_rule {
-    struct range field[FIELDS];
+    range_t field[FIELDS];
 } pc_rule_t;
 
 typedef struct cbm_entry {
