@@ -391,32 +391,154 @@ int cbm_rule_search(uint16_t rule, cbm_t *cbms, int ncbm)
 }
 
 
-void dump_phase_table(int *table, int n1, int n2)
+void table_row_run(int *table, int n1, int n2)
 {
-    int	    i, j, tid, cbm_id1, cbm_id2, run_len;
-
-    cbm_id1 = table[0];
-    run_len = 0;
+    int	    i, j, tid, cbm_id1, cbm_id2, run_len, max_run;
+    printf("Row run:\n");
     tid = 0;
     for (i = 0; i < n1; i++) {
-	//fprintf(stderr, "cbm0[%d]\n", i);
-	for (j = 0; j < n2; j++) {
+	max_run = 1;
+	cbm_id1 = table[tid++];
+	run_len = 1;
+	for (j = 1; j < n2; j++) {
 	    cbm_id2 = table[tid++];
 	    if (cbm_id2 == cbm_id1) {
 		run_len++;
 	    } else {
-		//fprintf(stderr, "%d#%d\n", cbm_id1, run_len);
-		//printf("table[%d]: %d#%d\n", i, eqid, run_len);
+		max_run = run_len > max_run ? run_len : max_run;
 		cbm_id1 = cbm_id2;
 		run_len = 1;
 	    }
 	}
-	//if (run_len > 1)
-	//    fprintf(stderr, "%d#%d\n", cbm_id1, run_len);
-	run_len = 0;
-	cbm_id1 = table[tid];
+	printf("cbm[%d] run: %d\n", i, max_run);
     }
-    //fprintf(stderr, "%d#%d\n", cbm_id1, run_len);
+}
+
+
+void table_column_run(int *table, int n1, int n2)
+{
+    int	    i, j, tid, cbm_id1, cbm_id2, run_len, max_run;
+
+    printf("Column run:\n");
+    for (i = 0; i < n2; i++) {
+	max_run = 1;
+	tid = i;
+	cbm_id1 = table[tid];
+	run_len = 1;
+	for (j = 1; j < n1; j++) {
+	    tid += n2;
+	    cbm_id2 = table[tid];
+	    if (cbm_id2 == cbm_id1) {
+		run_len++;
+	    } else {
+		max_run = run_len > max_run ? run_len : max_run;
+		cbm_id1 = cbm_id2;
+		run_len = 1;
+	    }
+	}
+	printf("column run[%d]: %d\n", i, max_run);
+    }
+}
+
+
+#define BLOCKSIZE   8
+
+enum block_type {MATRIX_BLOCK, ROW_BLOCK, COL_BLOCK, SCALAR_BLOCK};
+
+
+int get_block_type(int *table, int b1, int b2, int n1, int n2)
+{
+    int	    i, j, base, offset, row, col, row_size, col_size, is_row_block, is_col_block, is_scalar_block;
+    int	    block[BLOCKSIZE][BLOCKSIZE];
+
+    row_size = (b1+1) * BLOCKSIZE > n1 ? n1 - b1*BLOCKSIZE : BLOCKSIZE;
+    col_size = (b2+1) * BLOCKSIZE > n2 ? n2 - b2*BLOCKSIZE : BLOCKSIZE;
+    row = b1 * BLOCKSIZE;
+    col = b2 * BLOCKSIZE;
+    base = row * n2;
+    for (i = 0; i < row_size; i++) {
+	offset = col;
+	for (j = 0; j < col_size; j++) {
+	    block[i][j] = table[base + offset++];
+	}
+	base += n2;
+    }
+
+    is_row_block = 1;
+    for (i = 0; i < row_size-1; i++) {
+	for (j = 0; j < col_size; j++) {
+	    if (block[i][j] != block[i+1][j]) {
+		is_row_block = 0;
+		break;
+	    }
+	}
+    }
+
+    is_col_block = 1;
+    for (j = 0; j < col_size-1; j++) {
+	for (i = 0; i < row_size; i++) {
+	    if (block[i][j] != block[i][j+1]) {
+		is_col_block = 0;
+		break;
+	    }
+	}
+    }
+
+    is_scalar_block = is_row_block && is_col_block;
+
+    if (is_scalar_block)
+	return SCALAR_BLOCK;
+
+    if (is_row_block)
+	return ROW_BLOCK;
+
+    if (is_col_block)
+	return COL_BLOCK;
+
+    return MATRIX_BLOCK;
+}
+
+
+void table_block_stats(int *table, int n1, int n2)
+{
+    int	    nb1, nb2, type, i, j;
+
+    nb1 = n1 / BLOCKSIZE;
+    if (n1 % BLOCKSIZE != 0) nb1++;
+    nb2 = n2 / BLOCKSIZE;
+    if (n2 % BLOCKSIZE != 0) nb2++;
+
+    printf("Table block stats\n");
+    for (i = 0; i < nb1; i++) {
+	for (j = 0; j < nb2; j++) {
+	    type = get_block_type(table, i, j, n1, n2);
+	    printf("type:%d\n", type);
+	}
+    }
+}
+
+
+void dump_phase_table(int *table, int n1, int n2)
+{
+    int	    i, j, tid, cbm_id1, cbm_id2, run_len, max_run;
+
+    tid = 0;
+    for (i = 0; i < n1; i++) {
+	printf("cbm0[%d]\n", i);
+	cbm_id1 = table[tid++];
+	run_len = 1;
+	for (j = 1; j < n2; j++) {
+	    cbm_id2 = table[tid++];
+	    if (cbm_id2 == cbm_id1) {
+		run_len++;
+	    } else {
+		printf("  %d#%d\n", cbm_id1, run_len);
+		cbm_id1 = cbm_id2;
+		run_len = 1;
+	    }
+	}
+	printf("  %d#%d\n", cbm_id1, run_len);
+    }
 }
 
 
@@ -843,7 +965,7 @@ int do_cbm_stats(int phase, int chunk, int flag)
     qsort(stats, phase_num_cbms[phase][chunk], sizeof(cbm_stat_t), cbm_stat_cmp);
 
     // only look at CBMs contributing at least 1% of the phase table
-    m = phase_table_sizes[phase][chunk] / 100;
+    m = phase_table_sizes[phase][chunk] / 256;
     m = m < 8 ? 8 : m;
     for (i = 0; i < phase_num_cbms[phase][chunk]; i++) {
 	if (stats[i].count <= m)
@@ -941,7 +1063,9 @@ int p2_crossprod()
     crossprod_2chunk(2, 0, cbms1, n1, cbms2, n2, rest_fields);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[2][0], table_size);
     do_cbm_stats(2, 0, 0);
-    dump_phase_table(phase_tables[2][0], n1, n2);
+    //table_row_run(phase_tables[2][0], n1, n2);
+    //table_column_run(phase_tables[2][0], n1, n2);
+    table_block_stats(phase_tables[2][0], n1, n2);
     //cbm_minor_stats(0);
     //cbm_minor_stats(1);
 
