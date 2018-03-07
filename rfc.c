@@ -492,7 +492,7 @@ void dump_cbm_rules(cbm_t *cbm)
 
 // if the rulelist is not in the CBM set of current <phase, chunk>, create a new CBM with this rulelist,
 // and add it into the CBM set of current < phase, chunk> (i.e., phase_cbms[phase][chunk])
-int create_cbm(int phase, int chunk, uint16_t *rules, uint16_t nrules, int rulesum)
+int new_cbm(int phase, int chunk, uint16_t *rules, uint16_t nrules, int rulesum)
 {
     static int	cbm_sizes[PHASES][MAXCHUNKS];
     int		cbm_id;
@@ -535,11 +535,8 @@ void gen_p0_cbm(int chunk)
 
 	// 2. check whether the generated cbm exists
 	cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[0][chunk]);
-	if (cbm_id <  0) { // 3. this is a new cbm, add it to the cbm_set 
-	    cbm_id = create_cbm(0, chunk, rules, nrules, rulesum);
-	    if (chunk == 3 && (cbm_id >= 951 && cbm_id <= 955))
-		printf("point[%d]: %d created cbmid %d\n", i, point, cbm_id);
-	}
+	if (cbm_id <  0) // 3. this is a new cbm, add it to the cbm_set 
+	    cbm_id = new_cbm(0, chunk, rules, nrules, rulesum);
 
 	// 4. fill the corresponding p0 chunk table with the eqid (cbm_id)
 	next_point = (i == num_epoints[chunk] - 1) ? 65536 : epoints[chunk][i+1];
@@ -568,14 +565,16 @@ int gen_p0_tables()
 
 
 // intersecting the rulelists of two CBMs (each from current CBMs for constructing a CBM set in next phase)
-int cbm_2intersect(cbm_t *c1, cbm_t *c2, uint16_t *rules)
+int cbm_2intersect(cbm_t *c1, cbm_t *c2, uint16_t *rules, int *rulesum)
 {
     int		n = 0, ncmp = 0;
     uint16_t	i = 0, j = 0;
 
+    *rulesum = 0;
     while (i < c1->nrules && j < c2->nrules) {
 	if (c1->rules[i] == c2->rules[j]) {
 	    rules[n++] = c1->rules[i];
+	    *rulesum += c1->rules[i];
 	    i++; j++;
 	} else if (c1->rules[i] > c2->rules[j]) {
 	    j++;
@@ -686,33 +685,26 @@ int trim_redundant_rules(uint16_t *rules, int nrules, int *rulesum, int *rest_fi
 }
 
 
-// crossproducting two chunks using their CBM sets for a chunk in the next phase,
-// and populate the corresponding phase table in next phase with the generated CBM set
-void crossprod_2chunk(int phase, int chunk, cbm_t *cbms1, int n1, cbm_t *cbms2, int n2, int *rest_fields)
+// construct CBM set for current <phase, chunk> by crossproducting two CBM sets from previous phase
+void construct_cbm_set(int phase, int chunk, cbm_t *cbms1, int n1, cbm_t *cbms2, int n2)
 {
     int		i, j, cbm_id, rulesum, cpd_size = n1 * n2;
     uint16_t	rules[MAXRULES], nrules;
-    
-    phase_cbms[phase][chunk] = (cbm_t *) malloc(cpd_size*sizeof(cbm_t));
+
     init_cbm_hash();
 
+    phase_cbms[phase][chunk] = (cbm_t *) malloc(cpd_size*sizeof(cbm_t));
     for (i = 0; i < n1; i++) {
 	if ((i & 0xFFF) == 0) // to show the progress for a long crossproducting process
 	    fprintf(stderr, "crossprod_2chunk: %6d/%6d\n", i, n1);
 
 	for (j =  0; j < n2; j++) {
 	    // 1. generate the intersect of two cbms from two chunks and trim it
-	    nrules = cbm_2intersect(&cbms1[i], &cbms2[j], rules);
-	    if (nrules > 1)
-		nrules = trim_redundant_rules(rules, nrules, &rulesum, rest_fields);
-	    else if (nrules == 1)
-		rulesum = rules[0];
-	    else // nrules == 0
-		rulesum = 0;
+	    nrules = cbm_2intersect(&cbms1[i], &cbms2[j], rules, &rulesum);
 	    // 2. check whether the intersect cbm exists in crossproducted cbm list so far
 	    cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[phase][chunk]);
 	    if (cbm_id < 0) // 3. the intersect cbm is new, so add it to the crossproducted cbm list
-		cbm_id = create_cbm(phase, chunk, rules, nrules, rulesum);
+		cbm_id = new_cbm(phase, chunk, rules, nrules, rulesum);
 	    //4. fill the corresponding crossproduct table with the eqid (cmb_id)
 	    phase_tables[phase][chunk][i*n2 + j] = cbm_id;
 	}
@@ -721,6 +713,70 @@ void crossprod_2chunk(int phase, int chunk, cbm_t *cbms1, int n1, cbm_t *cbms2, 
     phase_cbms[phase][chunk] = (cbm_t *) realloc(phase_cbms[phase][chunk], cpd_size*sizeof(cbm_t));
 
     free_cbm_hash();
+}
+
+
+// just free its rule list to reclaim memory
+void del_cbm(cbm_t *cbm)
+{
+    if (cbm->nrules > 0)
+	free(cbm->rules);
+}
+
+
+// there are some CBMs where their rule lists contain redundant rules, by moving these redundant
+// rules, some CBMs may become identical and the CBM set can be compacted
+void compact_cbm_set(int phase, int chunk, int *rest_fields)
+{
+    int		i, ncbms = 0, cbm_id, *cbm_map;
+    cbm_t	*cbm;
+
+    init_cbm_hash();
+
+    cbm_map = (int *) malloc(phase_num_cbms[phase][chunk]*sizeof(int)); 
+    for(i = 0; i < phase_num_cbms[phase][chunk]; i++) {
+	cbm = &phase_cbms[phase][chunk][i];
+	if (cbm->nrules > 1)
+	    cbm->nrules= trim_redundant_rules(cbm->rules, cbm->nrules, &(cbm->rulesum), rest_fields);
+	cbm_id = cbm_lookup(cbm->rules, cbm->nrules, cbm->rulesum, phase_cbms[phase][chunk]);
+	if (cbm_id >= 0) {
+	    // this CBM has preceding equivalent CBM, so exclude it from the set
+	    cbm_map[cbm->id] = cbm_id;
+	    del_cbm(cbm);
+	    continue;
+	}
+
+	cbm_map[cbm->id] = ncbms;
+	if (cbm->id > ncbms) {  
+	    // some preceding CBMS removed, need change this one's location
+	    cbm->id = ncbms;
+	    phase_cbms[phase][chunk][ncbms] = *cbm;
+	}
+	ncbms++;
+	add_to_hash(cbm);
+    }
+
+    phase_num_cbms[phase][chunk] = ncbms;
+    phase_cbms[phase][chunk] = (cbm_t *) realloc(phase_cbms[phase][chunk], ncbms*sizeof(cbm_t));
+
+    // refill the phase table with the new CBM ids after compaction
+    for (i = 0; i < phase_table_sizes[phase][chunk]; i++) {
+	cbm_id = phase_tables[phase][chunk][i];
+	phase_tables[phase][chunk][i] = cbm_map[cbm_id];
+    }
+
+    free(cbm_map);
+    free_cbm_hash();
+}
+
+
+// crossproducting two chunks using their CBM sets for a chunk in the next phase,
+// and populate the corresponding phase table in next phase with the generated CBM set
+void crossprod_2chunk(int phase, int chunk, cbm_t *cbms1, int n1, cbm_t *cbms2, int n2, int *rest_fields)
+{
+    construct_cbm_set(phase, chunk, cbms1, n1, cbms2, n2);
+    if (phase >= 2)	// phase 1 compaction is unnecessary and super slow! don't do it!
+	compact_cbm_set(phase, chunk, rest_fields);
 }
 
 
@@ -926,9 +982,6 @@ int p3_crossprod()
     crossprod_2chunk(3, 0, cbms1, n1, cbms2, n2, rest_fields);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[3][0], table_size);
     do_cbm_stats(3, 0, 0);
-
-    for (i = 0; i < phase_num_cbms[3][0]; i++)
-	dump_cbm_rules(&phase_cbms[3][0][i]);
 
     //dump_intersect_stats();
 }
