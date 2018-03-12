@@ -5,7 +5,13 @@
 #define MAXCHUNKS	7
 #define PHASES		4
 
-typedef struct range{
+#define BLOCKSIZE	16
+#define MATRIX_BLOCK	0
+#define ROW_BLOCK	1
+#define COL_BLOCK	2
+#define POINT_BLOCK	3
+
+typedef struct range {
     unsigned low;
     unsigned high;
 } range_t;
@@ -26,3 +32,11 @@ typedef struct cbm_stat {
     int gminor, lminor;
     int	count;
 } cbm_stat_t;
+
+
+typedef struct block_table {
+    uint8_t	type;	    // block type
+    uint8_t	gminor;	    // at most 2 resulting CBMs set by global minor rules is allowed
+    uint16_t	lminor;	    // at most 2 resulting CBMs by local minor rules is supported
+    int		base;	    // start address in the phase table
+} block_table_t;

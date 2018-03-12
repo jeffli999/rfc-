@@ -14,3 +14,4 @@ void read_flow_trace(FILE *ftrace);
 void dump_one_flow(int i);
 void dump_flows();
 void dump_rule_sizes();
+void calc_rule_scales();

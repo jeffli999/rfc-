@@ -441,11 +441,15 @@ void table_column_run(int *table, int n1, int n2)
 }
 
 
-#define BLOCKSIZE   8
 
-enum block_type {MATRIX_BLOCK, ROW_BLOCK, COL_BLOCK, SCALAR_BLOCK};
+// -------------------------------------------------------------------------------------------------
+//
+// Section blocking: functions for implementing blocking scheme for phase table space reduction.
+//
+// -------------------------------------------------------------------------------------------------
 
 
+// for block type statistics on the original phase table scheme
 int get_block_type(int *table, int b1, int b2, int n1, int n2)
 {
     int	    i, j, base, offset, row, col, row_size, col_size, is_row_block, is_col_block, is_scalar_block;
@@ -487,7 +491,7 @@ int get_block_type(int *table, int b1, int b2, int n1, int n2)
     is_scalar_block = is_row_block && is_col_block;
 
     if (is_scalar_block)
-	return SCALAR_BLOCK;
+	return POINT_BLOCK;
 
     if (is_row_block)
 	return ROW_BLOCK;
@@ -495,13 +499,41 @@ int get_block_type(int *table, int b1, int b2, int n1, int n2)
     if (is_col_block)
 	return COL_BLOCK;
 
+    static int np2 = 0, np3 = 0;
+
+    if (np2++ < 1000) {
+	printf("block 2:\n");
+	for (i = 0; i < row_size; i++) {
+	    for (j = 0; j < col_size; j++) {
+		printf("%4d ", block[i][j]);
+	    }
+	    printf("\n");
+	}
+    }
+
+    if (table == phase_tables[3][0]) {
+	if (np3++ < 1000) {
+	    printf("block 3:\n");
+	    for (i = 0; i < row_size; i++) {
+		for (j = 0; j < col_size; j++) {
+		    printf("%4d ", block[i][j]);
+		}
+		printf("\n");
+	    }
+	}
+    }
+
     return MATRIX_BLOCK;
 }
 
 
+// for block type statistics on the original phase table scheme
 void table_block_stats(int *table, int n1, int n2)
 {
-    int	    nb1, nb2, type, i, j;
+    int	    nb1, nb2, type, i, j, type_counts[4];
+
+    for (i = 0; i < 4; i++) 
+	type_counts[i] = 0;
 
     nb1 = n1 / BLOCKSIZE;
     if (n1 % BLOCKSIZE != 0) nb1++;
@@ -512,10 +544,20 @@ void table_block_stats(int *table, int n1, int n2)
     for (i = 0; i < nb1; i++) {
 	for (j = 0; j < nb2; j++) {
 	    type = get_block_type(table, i, j, n1, n2);
-	    printf("type:%d\n", type);
+	    type_counts[type]++;
 	}
     }
+
+    for (i = 0; i < 4; i++)
+	printf("type[%d]: %d\n", i, type_counts[i]);
 }
+
+
+// -------------------------------------------------------------------------------------------------
+//
+// Statistics functions
+//
+// -------------------------------------------------------------------------------------------------
 
 
 void dump_phase_table(int *table, int n1, int n2)
@@ -686,8 +728,46 @@ int gen_p0_tables()
 }
 
 
+int is_minor_rule(uint16_t rule, int field)
+{
+    return rule_scales[field][rule] == 0 ? 1 : 0;
+}
+
+
+// statistics on the number of minor rules for each CBM in field SIP or DIP in phase 1
+int cbm_minor_stats(int field)
+{
+    cbm_t	*cbms = phase_cbms[1][field];
+    cbm_stat_t	*stats;
+    int		ncbms, cross_field, i, r;
+    uint16_t	rule;
+
+    // if field is SIP, then cross_field DIP, and vice versa
+    cross_field = (field == 0) ? 1 : 0;	    
+    ncbms = phase_num_cbms[1][field];
+    stats = (cbm_stat_t *) calloc(ncbms, sizeof(cbm_stat_t));
+
+    printf("Field[%d] CBM minor rules:\n", field);
+    for (i = 0; i < ncbms; i++) {
+	stats[i].id = i;
+	for (r = 0; r < cbms[i].nrules; r++) {
+	    rule = cbms[i].rules[r];
+	    if (is_minor_rule(rule, field)) {
+		if (is_minor_rule(rule, cross_field))
+		    stats[i].lminor++;
+		else {
+		    stats[i].gminor++;
+		    printf("cbm[%d].gminor: %d\n", i, rule);
+		}
+	    }
+	}
+	printf("    CBM[%d] %d rules: %d gminor, %d lminor\n", i, cbms[i].nrules, stats[i].gminor, stats[i].lminor);
+    }
+}
+
+
 // intersecting the rulelists of two CBMs (each from current CBMs for constructing a CBM set in next phase)
-int cbm_2intersect(cbm_t *c1, cbm_t *c2, uint16_t *rules, int *rulesum)
+int cbm_2intersect(int phase, int chunk, cbm_t *c1, cbm_t *c2, uint16_t *rules, int *rulesum)
 {
     int		n = 0, ncmp = 0;
     uint16_t	i = 0, j = 0;
@@ -695,8 +775,11 @@ int cbm_2intersect(cbm_t *c1, cbm_t *c2, uint16_t *rules, int *rulesum)
     *rulesum = 0;
     while (i < c1->nrules && j < c2->nrules) {
 	if (c1->rules[i] == c2->rules[j]) {
-	    rules[n++] = c1->rules[i];
-	    *rulesum += c1->rules[i];
+	    // XXX: skip global minor rules (for blocking test only, remove it otherwise)
+	    if (!((phase == 2) && (chunk == 0) && (is_minor_rule(c1->rules[i], 0) || is_minor_rule(c1->rules[i], 1)))) {
+		rules[n++] = c1->rules[i];
+		*rulesum += c1->rules[i];
+	    }
 	    i++; j++;
 	} else if (c1->rules[i] > c2->rules[j]) {
 	    j++;
@@ -822,7 +905,7 @@ void construct_cbm_set(int phase, int chunk, cbm_t *cbms1, int n1, cbm_t *cbms2,
 
 	for (j =  0; j < n2; j++) {
 	    // 1. generate the intersect of two cbms from two chunks and trim it
-	    nrules = cbm_2intersect(&cbms1[i], &cbms2[j], rules, &rulesum);
+	    nrules = cbm_2intersect(phase, chunk, &cbms1[i], &cbms2[j], rules, &rulesum);
 	    // 2. check whether the intersect cbm exists in crossproducted cbm list so far
 	    cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[phase][chunk]);
 	    if (cbm_id < 0) // 3. the intersect cbm is new, so add it to the crossproducted cbm list
@@ -905,44 +988,6 @@ void crossprod_2chunk(int phase, int chunk, cbm_t *cbms1, int n1, cbm_t *cbms2, 
 static int cbm_stat_cmp(const void *p, const void *q)
 {
     return ((cbm_stat_t *)q)->count - ((cbm_stat_t *)p)->count;
-}
-
-
-int is_minor_rule(uint16_t rule, int field)
-{
-    return rule_scales[field][rule] == 0 ? 1 : 0;
-}
-
-
-// statistics on the number of minor rules for each CBM in field SIP or DIP in phase 1
-int cbm_minor_stats(int field)
-{
-    cbm_t	*cbms = phase_cbms[1][field];
-    cbm_stat_t	*stats;
-    int		ncbms, cross_field, i, r;
-    uint16_t	rule;
-
-    // if field is SIP, then cross_field DIP, and vice versa
-    cross_field = (field == 0) ? 1 : 0;	    
-    ncbms = phase_num_cbms[1][field];
-    stats = (cbm_stat_t *) calloc(ncbms, sizeof(cbm_stat_t));
-
-    printf("Field[%d] CBM minor rules:\n", field);
-    for (i = 0; i < ncbms; i++) {
-	stats[i].id = i;
-	for (r = 0; r < cbms[i].nrules; r++) {
-	    rule = cbms[i].rules[r];
-	    if (is_minor_rule(rule, field)) {
-		if (is_minor_rule(rule, cross_field))
-		    stats[i].lminor++;
-		else {
-		    stats[i].gminor++;
-		    printf("cbm[%d].gminor: %d\n", i, rule);
-		}
-	    }
-	}
-	printf("    CBM[%d] %d rules: %d gminor, %d lminor\n", i, cbms[i].nrules, stats[i].gminor, stats[i].lminor);
-    }
 }
 
 
@@ -1066,8 +1111,8 @@ int p2_crossprod()
     //table_row_run(phase_tables[2][0], n1, n2);
     //table_column_run(phase_tables[2][0], n1, n2);
     table_block_stats(phase_tables[2][0], n1, n2);
-    //cbm_minor_stats(0);
-    //cbm_minor_stats(1);
+    cbm_minor_stats(0);
+    cbm_minor_stats(1);
 
     // PROTO x (DP x SP)
     rest_fields[0] = rest_fields[1] = 1;
@@ -1106,6 +1151,7 @@ int p3_crossprod()
     crossprod_2chunk(3, 0, cbms1, n1, cbms2, n2, rest_fields);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[3][0], table_size);
     do_cbm_stats(3, 0, 0);
+    table_block_stats(phase_tables[3][0], n1, n2);
 
     //dump_intersect_stats();
 }
@@ -1281,6 +1327,8 @@ int main(int argc, char* argv[])
 	//return 1;   // aim to produce trace, no need for packet classification
     }
 
+// XXX: for blocking test purpose, should be removed otherwise
+calc_rule_scales();
     // constructing RFC tables
     construct_rfc();
 

@@ -50,3 +50,38 @@ RFC Memory reduction methods:
 Changes for CBM1 * CBM2:
 1. CBM1: cbm_id = (cbm-major, cbm-minor)
 2. cbm-major fields: major_base, minor_base, minor_low, major_high
+
+
+2018-03-12
+============
+Found radical reduction by excluding minor rules (global + local) from crossproducting in SIP x DIP:
+* before excluding minor rules:
+    type[0]: 21925
+    type[1]: 3787
+    type[2]: 38133
+    type[3]: 6622
+* after excluding minor rules:
+    type[0]: 559
+    type[1]: 8025
+    type[2]: 3976
+    type[3]: 57907
+
+To exploit this observation for phase-table space saving, the following scheme is designed:
+1. Each SIP/DIP CBM is split into major part and minor part, with minor rules moving to the minor
+   part.
+2. A blocking scheme is proposed, where a BLOCKSIZE of SIP CBMs are crossproducted with a BLOCKSIZE
+   of DIP CBMs to ge a matrix of phase2 CBMs, and this matrix can be in one of 4 types:
+    1) POINT: All elements in the matrix are identical, so can be represented with a single table
+       entry.
+    2) ROW: All rows in the matrix are identical, so can be represented as BLOCKSIZE table
+       entries. This means different SIP CBMs produce the same resulting CBM on each DIP CBM in the
+       block (which is a run-length of BLOCKSIZE in the original phase-2 block).
+    3) COLUMN: All columns in the matrix are identical, so can be represented as BLOCKSIZE table
+       entries. This means different DIP CBMs produce the same resulting CBM on each SIP CBM in the
+       block (which is repetitive CBMs with a distance of phase_num_cbms[1][1] in the original
+       phase table phase_tables[2][0])
+    4) MATRIX: the resulting CBM block does not belong to the above types, and a matrix of
+       BLOCKSIZE x BLOCKSIZE elements are needed to record the resulting CBMs.
+3. A data structure: block_table_t, is designed for the blocking scheme, and a new indexing method
+   containing access to the block-table is designed for phase-table addressing.
+    
