@@ -1,3 +1,6 @@
+#ifndef RFC_H
+#define RFC_H
+
 #include <stdint.h>
 
 #define MAXRULES	65536
@@ -6,10 +9,9 @@
 #define PHASES		4
 
 #define BLOCKSIZE	16
-#define MATRIX_BLOCK	0
-#define ROW_BLOCK	1
-#define COL_BLOCK	2
-#define POINT_BLOCK	3
+
+enum BLOCK_TYPE {MATRIX_BLOCK, ROW_BLOCK, COL_BLOCK, POINT_BLOCK};
+enum RULE_TYPE {ALL_RULE, MAJOR_RULE, MINOR_RULE};
 
 typedef struct range {
     unsigned low;
@@ -28,10 +30,10 @@ typedef struct cbm_entry {
 } cbm_t;
 
 
-typedef struct cbm_id_t {
+typedef struct cbm_id {
     int		major;	    // cbm with only major rules in this chunk
     int		minor;	    // cbm with only minor rules in this chunk
-}
+} cbm_id_t;
 
 typedef struct cbm_stat {
     int	id;
@@ -46,3 +48,5 @@ typedef struct block_table {
     uint16_t	lminor;	    // at most 2 resulting CBMs by local minor rules is supported
     int		base;	    // start address in the phase table
 } block_table_t;
+
+#endif

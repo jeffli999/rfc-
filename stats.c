@@ -1,6 +1,13 @@
 #include <stdio.h>
 #include "stats.h"
+#include "rfc.h"
 
+extern int	epoints[MAXCHUNKS][MAXRULES*2+2];
+extern int	num_epoints[MAXCHUNKS];
+extern int	num_full_cbms[PHASES][MAXCHUNKS];
+extern int	phase_table_sizes[PHASES][MAXCHUNKS];
+extern long	intersect_stats[MAXRULES*2];
+extern long	hash_stats[10000];
 
 int dump_endpoints()
 {
@@ -97,6 +104,7 @@ void phase_table_stats(int *table, int len, int thresh_rlen)
 
 
 // statistics on the number of minor rules for each CBM in field SIP or DIP in phase 1
+/*
 int cbm_minor_stats(int field)
 {
     cbm_t	*cbms = phase_cbms[1][field];
@@ -126,6 +134,7 @@ int cbm_minor_stats(int field)
 	printf("    CBM[%d] %d rules: %d gminor, %d lminor\n", i, cbms[i].nrules, stats[i].gminor, stats[i].lminor);
     }
 }
+*/
 
 
 static int cbm_stat_cmp(const void *p, const void *q)
@@ -136,6 +145,7 @@ static int cbm_stat_cmp(const void *p, const void *q)
 
 // get the 10 most frequent CBMs in a phase table, and output them with their numbers of times in the phase table
 // flag = 1: output the detail of each cbm; flag = 0: no detail on each cbm
+/*
 int do_cbm_stats(int phase, int chunk, int flag)
 {
     cbm_stat_t	*stats;
@@ -171,4 +181,57 @@ int do_cbm_stats(int phase, int chunk, int flag)
 
     printf("    = %d%%\n", total*100 / phase_table_sizes[phase][chunk]);
     free(stats);
+}
+*/
+
+
+// dump out the rulelist of the CBM
+void dump_cbm_rules(cbm_t *cbm)
+{
+    uint16_t	i;
+
+    printf("cbm[%d]: ", cbm->id);
+    for (i = 0; i < cbm->nrules; i++)
+	printf("%u ", cbm->rules[i]);
+    printf("\n");
+}
+
+
+// statistics on the sizes of CBM sets and phase tables
+int do_rfc_stats()
+{
+    int	    i, phase_total[4] = {0, 0, 0, 0}, total = 0;
+
+    printf("\nPhase 0:\n");
+    printf("====================\n");
+    for (i = 0; i < 7; i++) {
+	printf("#cbm/#phase-table %d: %d/%d\n", i, num_full_cbms[0][i], 65536);
+	phase_total[0] += 65536;
+    }
+    printf("Total phase-table size: %d\n", phase_total[0]);
+
+    printf("\nPhase 1:\n");
+    printf("====================\n");
+    for (i = 0; i < 3; i++) {
+	printf("#cbm/#phase-table %d: %d/%d\n", i, num_full_cbms[1][i], phase_table_sizes[1][i]);
+	phase_total[1] += phase_table_sizes[1][i];
+    }
+    printf("Total phase-table size: %d\n", phase_total[1]);
+
+    printf("\nPhase 2:\n");
+    printf("====================\n");
+    for (i = 0; i < 2; i++) {
+	printf("#cbm/#phase-table %d: %d/%d\n", i, num_full_cbms[2][i], phase_table_sizes[2][i]);
+	phase_total[2] += phase_table_sizes[2][i];
+    }
+    printf("Total phase-table size: %d\n", phase_total[2]);
+
+    printf("\nPhase 3:\n");
+    printf("====================\n");
+    printf("#cbm/#phase-table %d: %d/%d\n", i, num_full_cbms[3][0], phase_table_sizes[3][0]);
+    phase_total[3] = phase_table_sizes[3][0];
+
+    for (i = 0; i < 4; i++)
+	total += phase_total[i];
+    printf("\nTotal table size: %d\n", total);
 }
