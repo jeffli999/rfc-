@@ -61,7 +61,6 @@ int		phase_table_sizes[PHASES][MAXCHUNKS];
 // Alert: no less than 65536, otherwise phase 0 full cbm formulation will go wrong!
 #define HASH_TAB_SIZE   99787
 int     *cbm_hash[HASH_TAB_SIZE];
-int     *cbm_hash[HASH_TAB_SIZE];
 int     cbm_hash_size[HASH_TAB_SIZE];   
 int     cbm_hash_num[HASH_TAB_SIZE];    
 
@@ -363,7 +362,7 @@ int new_cbm(int phase, int chunk, int type, uint16_t *rules, uint16_t nrules, in
 
     // increase CBM memory at a step of 256 elements
     if ((pnums[chunk] & 0xFF) == 0) 
-	pcbms[chunk] = realloc(pcbms[chunk], pnums[chunk] + 0x100);
+	pcbms[chunk] = realloc(pcbms[chunk], (pnums[chunk]+0x100) * sizeof(cbm_t));
 
     cbm_id = pnums[chunk];
     pcbms[chunk][cbm_id].id = cbm_id;
@@ -650,9 +649,10 @@ int collect_epoint_rules(int chunk, int point, int type, uint16_t *rules, int *r
     k = shamt[chunk];
     *rulesum = 0;
     for (i = 0; i < numrules; i++) {
-	if ((type == MAJOR_RULE) && is_minor_rule(i, f))
+	// only filter out minor/major rules for SIP & DIP chunks accordingly
+	if ((f < 2) && (type == MAJOR_RULE) && is_minor_rule(i, f))
 	    continue;
-	if ((type == MINOR_RULE) && !is_minor_rule(i, f))
+	if ((f < 2) && (type == MINOR_RULE) && !is_minor_rule(i, f))
 	    continue;
 	low = ruleset[i].field[f].low >> k & 0xFFFF;
 	high = ruleset[i].field[f].high >> k & 0xFFFF;
@@ -671,6 +671,10 @@ void gen_cbms(int chunk, int type)
     int		rulesum, point, next_point, cbm_id, i, j, table_size = 65536;
 
     init_cbm_hash();
+
+    if (type == MINOR_RULE)
+	// first generate a default empty minor CBM
+	new_cbm(0, chunk, MINOR_RULE, NULL, 0, 0);
 
     for (i = 0; i < num_epoints[chunk]; i++) {
 	// 1. generate a cbm
@@ -694,9 +698,7 @@ void gen_cbms(int chunk, int type)
 		phase_tables[0][chunk][j].major = cbm_id;
 	}
     }
-printf("gen_cbms:%d.%d: begin\n", chunk, type);
     free_cbm_hash();
-printf("gen_cbms:%d.%d: end\n", chunk, type);
 }
 
 
@@ -707,11 +709,11 @@ int form_full_cbms(int chunk)
 
     f = chunk_to_field[chunk];
 
-    if (f > 2) {	// for other fields: only major cbms
-	p = full_cbms[0][chunk];
+    if (f >= 2) {	// for other fields: only major cbms
 	n = num_major_cbms[0][chunk];
 	num_full_cbms[0][chunk] = n;
 	full_cbms[0][chunk] = (cbm_id_t *) malloc(n*sizeof(cbm_id_t));
+	p = full_cbms[0][chunk];
 	for (i = 0; i < n; i++) {
 	    p[i].major = major_cbms[0][chunk][i].id;
 	    p[i].minor = 0;
@@ -735,15 +737,14 @@ int form_full_cbms(int chunk)
 	if (j == cbm_hash_num[major]) {	    // form a full cbm for this new <major, minor> pair
 	    p[n].major = major;
 	    p[n].minor = minor;
+	    add_to_hash(major, &minor_cbms[0][chunk][minor]);
 	    n++;
 	}
     }
     full_cbms[0][chunk] = (cbm_id_t *) realloc(full_cbms[0][chunk], n*sizeof(cbm_id_t));
     num_full_cbms[0][chunk] = n;
 
-printf("form: %d: begin\n", chunk);
     free_cbm_hash();
-printf("form: %d: end\n", chunk);
     return n;
 }
 
@@ -762,8 +763,6 @@ void gen_p0_cbms(int chunk)
 
     gen_cbms(chunk, MAJOR_RULE);
     if (f < 2) {    // only SIP & DIP fields handle minor rules
-	// first generate a default empty minor CBM
-	new_cbm(0, chunk, MINOR_RULE, NULL, 0, 0);
 	gen_cbms(chunk, MINOR_RULE);
     }
     // global cbms are constructed for each unique <major, minor> pair of cbms
