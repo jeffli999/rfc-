@@ -46,12 +46,12 @@ cbm_t		*major_cbms[PHASES][MAXCHUNKS];
 cbm_t		*minor_cbms[PHASES][MAXCHUNKS];
 int		num_major_cbms[PHASES][MAXCHUNKS];
 int		num_minor_cbms[PHASES][MAXCHUNKS];
-cbm_id_t	*full_cbms[PHASES][MAXCHUNKS];
+cbm_fullid_t	*full_cbms[PHASES][MAXCHUNKS];
 int		num_full_cbms[PHASES][MAXCHUNKS];
 
 block_table_t	*block_tables[PHASES][MAXCHUNKS];
 // phase tables contaiting CBM ids for each chunk at each phase
-cbm_id_t	*phase_tables[PHASES][MAXCHUNKS];
+cbm_fullid_t	*phase_tables[PHASES][MAXCHUNKS];
 int		phase_table_sizes[PHASES][MAXCHUNKS];
 
 
@@ -64,8 +64,12 @@ int     *cbm_hash[HASH_TAB_SIZE];
 int     cbm_hash_size[HASH_TAB_SIZE];   
 int     cbm_hash_num[HASH_TAB_SIZE];    
 
+// a hash table for looking up existing full CBM ids (major_id + minor_id)
+cbm_fullid_t    *fullid_hash[HASH_TAB_SIZE];
+int	    fullid_hash_size[HASH_TAB_SIZE];   
+int	    fullid_hash_num[HASH_TAB_SIZE];    
+
 // data structures for examining the two bottleneck functions, cmb_lookup(), cbm_2intersect()
-long	hash_stats[10000];
 long	intersect_stats[MAXRULES*2];
 
 
@@ -285,13 +289,67 @@ void free_cbm_hash()
 
 
 // a new CBM is added into the hash table to prevent duplicate CBMs added into the CBM set in the future
-void add_to_hash(int h, cbm_t *cbm)
+void add_cbm_hash(int h, cbm_t *cbm)
 {
     cbm_hash[h][cbm_hash_num[h]] = cbm->id;
     if (++cbm_hash_num[h] == cbm_hash_size[h]) {
 	cbm_hash_size[h] <<= 1;
 	cbm_hash[h] = (int *) realloc(cbm_hash[h], cbm_hash_size[h]*sizeof(int));
     }
+}
+
+
+void init_fullid_hash()
+{
+    int	i;
+
+    for (i = 0; i < HASH_TAB_SIZE; i++) {
+        fullid_hash[i] = (cbm_fullid_t *) malloc(2*sizeof(cbm_fullid_t));
+        fullid_hash_size[i] = 2;
+        fullid_hash_num[i] = 0;
+    }
+}
+
+
+void free_fullid_hash()
+{
+    int i;
+
+    for (i = 0; i < HASH_TAB_SIZE; i++)
+        free(fullid_hash[i]);
+}
+
+
+// a new CBM is added into the hash table to prevent duplicate CBMs added into the CBM set in the future
+void add_fullid_hash(cbm_fullid_t fullid)
+{
+    int	    h = fullid_hash_func(fullid.major, fullid.minor);
+
+    fullid_hash[h][fullid_hash_num[h]] = fullid;
+    if (++fullid_hash_num[h] == fullid_hash_size[h]) {
+	fullid_hash_size[h] <<= 1;
+	fullid_hash[h] = (cbm_fullid_t *) realloc(fullid_hash[h], fullid_hash_size[h]*sizeof(cbm_fullid_t));
+    }
+}
+
+
+int fullid_hash_func(int major, int minor)
+{
+    return ((major << 16) + minor) % HASH_TAB_SIZE;
+}
+
+
+int cbm_fullid_lookup(int major, int minor)
+{
+    int	    h, i, n, id, match = 0;
+
+    h = fullid_hash_func(major, minor);
+
+    for (i = 0; i < fullid_hash_num[h]; i++) {
+	if ((fullid_hash[h][i].major == major) && (fullid_hash[h][i].minor == minor))
+	    return i;
+    }
+    return -1;
 }
 
 
@@ -319,12 +377,9 @@ int cbm_lookup(uint16_t *rules, uint16_t nrules, int rulesum, cbm_t *cbm_set)
 	id = cbm_hash[h][i];
 	if (cbm_set[id].nrules != nrules)
 	    continue;
-	if (memcmp(rules, cbm_set[id].rules, nrules*sizeof(uint16_t)) == 0) {
-	    hash_stats[i+1]++;
+	if (memcmp(rules, cbm_set[id].rules, nrules*sizeof(uint16_t)) == 0)
 	    return id;
-	}
     }
-    hash_stats[i]++;
     return -1;
 }
 
@@ -373,7 +428,7 @@ int new_cbm(int phase, int chunk, int type, uint16_t *rules, uint16_t nrules, in
     pnums[chunk]++;
 
     h = pcbms[chunk][cbm_id].rulesum % HASH_TAB_SIZE;
-    add_to_hash(h, &pcbms[chunk][cbm_id]);
+    add_cbm_hash(h, &pcbms[chunk][cbm_id]);
 
     return cbm_id;
 }
@@ -397,7 +452,7 @@ void del_cbm(cbm_t *cbm)
 
 /*
 // for block type statistics on the original phase table scheme
-int get_block_type(cbm_id_t *table, int b1, int b2, int n1, int n2)
+int get_block_type(cbm_fullid_t *table, int b1, int b2, int n1, int n2)
 {
     int	    i, j, base, offset, row, col, row_size, col_size, is_row_block, is_col_block, is_scalar_block;
     int	    block[BLOCKSIZE][BLOCKSIZE];
@@ -705,14 +760,16 @@ void gen_cbms(int chunk, int type)
 int form_full_cbms(int chunk)
 {
     int		f, n, i, j, major, minor;
-    cbm_id_t	*p;
+    cbm_fullid_t	*p;
+
+    init_fullid_hash();
 
     f = chunk_to_field[chunk];
 
     if (f >= 2) {	// for other fields: only major cbms
 	n = num_major_cbms[0][chunk];
 	num_full_cbms[0][chunk] = n;
-	full_cbms[0][chunk] = (cbm_id_t *) malloc(n*sizeof(cbm_id_t));
+	full_cbms[0][chunk] = (cbm_fullid_t *) malloc(n*sizeof(cbm_fullid_t));
 	p = full_cbms[0][chunk];
 	for (i = 0; i < n; i++) {
 	    p[i].major = major_cbms[0][chunk][i].id;
@@ -722,29 +779,24 @@ int form_full_cbms(int chunk)
     }
 
     // for SIP & DIP fields: both major & minor cbms
-    full_cbms[0][chunk] = (cbm_id_t *) malloc((MAXRULES*2+2)*sizeof(cbm_id_t));
+    full_cbms[0][chunk] = (cbm_fullid_t *) malloc((MAXRULES*2+2)*sizeof(cbm_fullid_t));
     p = full_cbms[0][chunk];
     n = 0;
-    init_cbm_hash();
     
     for (i = 0; i < phase_table_sizes[0][chunk]; i++) {
 	major = phase_tables[0][chunk][i].major;
 	minor = phase_tables[0][chunk][i].minor;
-	for (j = 0; j < cbm_hash_num[major]; j++) {
-	    if (minor == cbm_hash[major][j])	// this <major, minor> pair exists, do nothing
-		break;
-	}
-	if (j == cbm_hash_num[major]) {	    // form a full cbm for this new <major, minor> pair
+	if (cbm_fullid_lookup(major, minor) < 0) {
 	    p[n].major = major;
 	    p[n].minor = minor;
-	    add_to_hash(major, &minor_cbms[0][chunk][minor]);
+	    add_fullid_hash(p[n]);
 	    n++;
 	}
     }
-    full_cbms[0][chunk] = (cbm_id_t *) realloc(full_cbms[0][chunk], n*sizeof(cbm_id_t));
+    full_cbms[0][chunk] = (cbm_fullid_t *) realloc(full_cbms[0][chunk], n*sizeof(cbm_fullid_t));
     num_full_cbms[0][chunk] = n;
 
-    free_cbm_hash();
+    free_fullid_hash();
     return n;
 }
 
@@ -759,7 +811,7 @@ void gen_p0_cbms(int chunk)
     f = chunk_to_field[chunk];
 
     phase_table_sizes[0][chunk] = table_size;
-    phase_tables[0][chunk] = (cbm_id_t *) calloc(table_size, sizeof(cbm_id_t));
+    phase_tables[0][chunk] = (cbm_fullid_t *) calloc(table_size, sizeof(cbm_fullid_t));
 
     gen_cbms(chunk, MAJOR_RULE);
     if (f < 2) {    // only SIP & DIP fields handle minor rules
@@ -768,7 +820,8 @@ void gen_p0_cbms(int chunk)
     // global cbms are constructed for each unique <major, minor> pair of cbms
     form_full_cbms(chunk);
 
-    printf("Chunk[%d]: %d CBMs\n", chunk, num_full_cbms[0][chunk]);
+    printf("Chunk[%d]: %d CBMs (major:%d, minor:%d)\n", 
+	    chunk, num_full_cbms[0][chunk], num_major_cbms[0][chunk], num_minor_cbms[0][chunk]);
 }
 
 
@@ -786,6 +839,206 @@ int gen_p0_tables()
 }
 
 
+
+//--------------------------------------------------------------------------------------------------
+//
+// Section crossprod: crossproducting phases
+//
+//--------------------------------------------------------------------------------------------------
+
+
+// intersecting the rulelists of two CBMs (each from current CBMs for constructing a CBM set in next phase)
+int cbm_intersect(uint16_t *rules, int *rulesum, cbm_t *c1, cbm_t *c2)
+{
+    int		n = 0, ncmp = 0;
+    uint16_t	i = 0, j = 0;
+
+    *rulesum = 0;
+    while (i < c1->nrules && j < c2->nrules) {
+	if (c1->rules[i] == c2->rules[j]) {
+	    rules[n++] = c1->rules[i];
+	    *rulesum += c1->rules[i];
+	    i++; j++;
+	} else if (c1->rules[i] > c2->rules[j]) {
+	    j++;
+	} else {
+	    i++;
+	}
+	ncmp++;
+    }
+    intersect_stats[ncmp]++;
+    return n;
+}
+
+
+// for all phases:   major = major1 x major2
+// for only phase 1: minor = minor1 x minor2
+// for other phases: TODO
+int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int n1, int n2)
+{
+    int		start1, end1, start2, end2, i, j, rulesum, major_id, minor_id, n = 0;
+    uint16_t	rules[MAXRULES], nrules;
+    cbm_t	*major1, *major2, *minor1, *minor2;
+
+    start1 = b1 * BLOCKSIZE;
+    end1 = (b1 + 1) * BLOCKSIZE;
+    if (end1 > n1)
+	end1 = n1;
+    start2 = b2 * BLOCKSIZE;
+    end2 = (b2 + 1) * BLOCKSIZE;
+    if (end2 > n2)
+	end2 = n2;
+
+    major1 = major_cbms[phase-1][ch1];
+    minor1 = minor_cbms[phase-1][ch1];
+    major2 = major_cbms[phase-1][ch2];
+    minor2 = minor_cbms[phase-1][ch2];
+
+    for (i = start1; i < end1; i++) {
+	for (j = start2; j < end2; j++) {
+	    // major = major1 x major2
+	    nrules = cbm_intersect(rules, &rulesum, &major1[i], &major2[j]);
+	    major_id = cbm_lookup(rules, nrules, rulesum, major_cbms[phase][chunk]);
+	    if (major_id < 0)
+		major_id = new_cbm(phase, chunk, MAJOR_RULE, rules, nrules, rulesum);
+	    // minor = minor1 x minor2
+	    nrules = cbm_intersect(rules, &rulesum, &minor1[i], &minor2[j]);
+	    minor_id = cbm_lookup(rules, nrules, rulesum, minor_cbms[phase][chunk]);
+	    if (minor_id < 0)
+		minor_id = new_cbm(phase, chunk, MAJOR_RULE, rules, nrules, rulesum);
+	    
+	    // if this <major, minor> pair is new, add it to cbm_full set
+	    if (cbm_fullid_lookup(major_id, minor_id) < 0) {
+		full_cbms[phase][chunk][n].major = major_id;
+		full_cbms[phase][chunk][n].minor = minor_id;
+		add_fullid_hash(full_cbms[phase][chunk][n]);
+		n++;
+	    }
+	}
+    }
+}
+
+
+// for chunks with both major & minor rule sets (SIP & DIP chunks)
+int crossprod_full(int phase, int chunk)
+{
+    int	    ch1, ch2, n1, n2, nb1, nb2, i, j;
+
+    init_cbm_hash();
+    init_fullid_hash();
+
+    switch (phase) {
+    case 1:
+	if (chunk == 0) {
+	    ch1 = 1;
+	    ch2 = 0;
+	} else {
+	    ch1 = 3;
+	    ch2 = 2;
+	}
+	break;
+    case 2:
+	ch1 = 0;
+	ch2 = 1;
+	break;
+    default:	    // phase 3 => the final phase
+	ch1 = 0;
+	ch2 = 1;
+	break;
+    }
+
+    n1 = num_full_cbms[phase-1][ch1];
+    n2 = num_full_cbms[phase-1][ch2];
+    nb1 = n1 / BLOCKSIZE;
+    if (n1 % BLOCKSIZE != 0) nb1++;
+    nb2 = n2 / BLOCKSIZE;
+    if (n2 % BLOCKSIZE != 0) nb2++;
+
+    for (i = 0; i < nb1; i++) {
+	for (j = 0; j < nb2; j++) {
+	    crossprod_block(phase, chunk, ch1, ch2, i, j, n1, n2);
+	}
+    }
+
+    free_fullid_hash();
+    free_cbm_hash();
+
+    printf("Chunk[%d]: %d CBMs (major:%d, minor:%d)\n", 
+	    chunk, num_full_cbms[phase][chunk], num_major_cbms[phase][chunk], num_minor_cbms[phase][chunk]);
+}
+
+
+// do phase 1 crossproducting for three pairs of chunks in phase 0,
+// Alert 1: the protocol chunk is left for crossproducting in next phase
+// Alert 2: be careful of the order of crosspoducting for each pair of chunks (as commented in below code)
+int p1_crossprod()
+{
+    // SIP[31:16] x SIP[15:0]
+    crossprod_full(1, 0);
+    
+    // DIP[31:16] x DIP[15:0]
+    crossprod_full(1, 1);
+
+    // DP x SP
+    //crossprod_major(1, 2);
+}
+
+/*
+int p1_crossprod()
+{
+    int	    table_size, n1, n2;
+    cbm_t   *cbms1, *cbms2;
+    int	    rest_fields[FIELDS] = {0, 1, 1, 1, 1};
+
+    // SIP[31:16] x SIP[15:0]
+    n1 = phase_num_cbms[0][1];
+    n2 = phase_num_cbms[0][0];
+    table_size = n1 * n2;
+    cbms1 = phase_cbms[0][1];
+    cbms2 = phase_cbms[0][0];
+    phase_table_sizes[1][0] = table_size;
+    phase_tables[1][0] = (int *) malloc(table_size*sizeof(int));
+    crossprod_2chunk(1, 0, cbms1, n1, cbms2, n2, rest_fields);
+    printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, phase_num_cbms[1][0], table_size);
+    //do_cbm_stats(1, 0, 0);
+    //dump_phase_table(phase_tables[1][0], n1, n2);
+
+    // DIP[31:16] x DIP[15:0]
+    rest_fields[0] = 1;
+    rest_fields[1] = 0;
+    n1 = phase_num_cbms[0][3];
+    n2 = phase_num_cbms[0][2];
+    table_size = n1 * n2;
+    cbms1 = phase_cbms[0][3];
+    cbms2 = phase_cbms[0][2];
+    phase_table_sizes[1][1] = table_size;
+    phase_tables[1][1] = (int *) malloc(table_size*sizeof(int));
+    crossprod_2chunk(1, 1, cbms1, n1, cbms2, n2, rest_fields);
+    printf("Chunk[%d]: %d CBMs in Table[%d]\n", 1, phase_num_cbms[1][1], table_size);
+    //do_cbm_stats(1, 1, 0);
+    //dump_phase_table(phase_tables[1][1], n1, n2);
+
+    // DP x SP
+    rest_fields[1] = 1;
+    rest_fields[3] = rest_fields[4] = 0;
+    n1 = phase_num_cbms[0][6];
+    n2 = phase_num_cbms[0][5];
+    table_size = n1 * n2;
+    cbms1 = phase_cbms[0][6];
+    cbms2 = phase_cbms[0][5];
+    phase_table_sizes[1][2] = table_size;
+    phase_tables[1][2] = (int *) malloc(table_size*sizeof(int));
+    crossprod_2chunk(1, 2, cbms1, n1, cbms2, n2, rest_fields);
+    printf("Chunk[%d]: %d CBMs in Table[%d]\n", 2,phase_num_cbms[1][2], table_size);
+    do_cbm_stats(1, 2, 0);
+    //dump_phase_table(phase_tables[1][2], n1, n2);
+
+    //dump_intersect_stats();
+    bzero(intersect_stats, MAXRULES*2*sizeof(long));
+}
+*/
+
+
 // constructing the RFC tables with a 3-phase process
 void construct_rfc()
 {
@@ -798,11 +1051,11 @@ void construct_rfc()
     gen_p0_tables();
     printf("***Phase 0 spent %lds\n\n", (clock()-t)/1000000);
 
-    /*
     t = clock();
     p1_crossprod();
     printf("***Phase 1 spent %lds\n\n", (clock()-t)/1000000);
 
+    /*
     t = clock();
     p2_crossprod();
     printf("***Phase 2 spent %lds\n\n", (clock()-t)/1000000);
@@ -817,6 +1070,7 @@ void construct_rfc()
 
     printf("\n");
 }
+
 
 
 int main(int argc, char* argv[])

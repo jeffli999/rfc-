@@ -40,6 +40,7 @@ void dump_intersect_stats()
 }
 
 
+/*
 void dump_hash_stats()
 {
     int	    i;
@@ -54,6 +55,7 @@ void dump_hash_stats()
     }
     printf("Total cbm hash lookups: %ld\n", total);
 }
+*/
 
 
 void dump_phase_table(int *table, int n1, int n2)

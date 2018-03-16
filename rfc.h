@@ -30,10 +30,10 @@ typedef struct cbm_entry {
 } cbm_t;
 
 
-typedef struct cbm_id {
+typedef struct cbm_fullid {
     int		major;	    // cbm with only major rules in this chunk
     int		minor;	    // cbm with only minor rules in this chunk
-} cbm_id_t;
+} cbm_fullid_t;
 
 typedef struct cbm_stat {
     int	id;
