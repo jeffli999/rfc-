@@ -320,6 +320,12 @@ void free_fullid_hash()
 }
 
 
+int fullid_hash_func(int major, int minor)
+{
+    return ((major << 16) + minor) % HASH_TAB_SIZE;
+}
+
+
 // a new CBM is added into the hash table to prevent duplicate CBMs added into the CBM set in the future
 void add_fullid_hash(cbm_fullid_t fullid)
 {
@@ -330,12 +336,6 @@ void add_fullid_hash(cbm_fullid_t fullid)
 	fullid_hash_size[h] <<= 1;
 	fullid_hash[h] = (cbm_fullid_t *) realloc(fullid_hash[h], fullid_hash_size[h]*sizeof(cbm_fullid_t));
     }
-}
-
-
-int fullid_hash_func(int major, int minor)
-{
-    return ((major << 16) + minor) % HASH_TAB_SIZE;
 }
 
 
@@ -371,6 +371,9 @@ int compare_rules(uint16_t *rules1, uint16_t *rules2, uint16_t n)
 int cbm_lookup(uint16_t *rules, uint16_t nrules, int rulesum, cbm_t *cbm_set)
 {
     int	    h, i, n, id, match = 0;
+
+    if (cbm_set == NULL)
+	return -1;
 
     h = rulesum % HASH_TAB_SIZE;
     for (i = 0; i < cbm_hash_num[h]; i++) {
@@ -415,9 +418,9 @@ int new_cbm(int phase, int chunk, int type, uint16_t *rules, uint16_t nrules, in
 	pnums = num_major_cbms[phase];
     }
 
-    // increase CBM memory at a step of 256 elements
-    if ((pnums[chunk] & 0xFF) == 0) 
-	pcbms[chunk] = realloc(pcbms[chunk], (pnums[chunk]+0x100) * sizeof(cbm_t));
+    // increase CBM memory at a step of 64k elements
+    if ((pnums[chunk] & 0xFFFF) == 0) 
+	pcbms[chunk] = realloc(pcbms[chunk], (pnums[chunk]+0x10000) * sizeof(cbm_t));
 
     cbm_id = pnums[chunk];
     pcbms[chunk][cbm_id].id = cbm_id;
@@ -559,33 +562,6 @@ void table_block_stats(int *table, int n1, int n2)
 int is_minor_rule(uint16_t rule, int field)
 {
     return rule_scales[field][rule] == 0 ? 1 : 0;
-}
-
-
-// intersecting the rulelists of two CBMs (each from current CBMs for constructing a CBM set in next phase)
-int cbm_2intersect(int phase, int chunk, cbm_t *c1, cbm_t *c2, uint16_t *rules, int *rulesum)
-{
-    int		n = 0, ncmp = 0;
-    uint16_t	i = 0, j = 0;
-
-    *rulesum = 0;
-    while (i < c1->nrules && j < c2->nrules) {
-	if (c1->rules[i] == c2->rules[j]) {
-	    // XXX: skip global minor rules (for blocking test only, remove it otherwise)
-	    if (!((phase == 2) && (chunk == 0) && (is_minor_rule(c1->rules[i], 0) || is_minor_rule(c1->rules[i], 1)))) {
-		rules[n++] = c1->rules[i];
-		*rulesum += c1->rules[i];
-	    }
-	    i++; j++;
-	} else if (c1->rules[i] > c2->rules[j]) {
-	    j++;
-	} else {
-	    i++;
-	}
-	ncmp++;
-    }
-    intersect_stats[ncmp]++;
-    return n;
 }
 
 
@@ -873,10 +849,11 @@ int cbm_intersect(uint16_t *rules, int *rulesum, cbm_t *c1, cbm_t *c2)
 
 // for all phases:   major = major1 x major2
 // for only phase 1: minor = minor1 x minor2
-// for other phases: TODO
+// for other phases: minor = minor1 x major2 + major1 x minor2 + minor1 x minor 2
 int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int n1, int n2)
 {
-    int		start1, end1, start2, end2, i, j, rulesum, major_id, minor_id, n = 0;
+    int		start1, end1, start2, end2, i, j, rulesum, n; 
+    int		major_id1, major_id2, minor_id1, minor_id2, major_id, minor_id;
     uint16_t	rules[MAXRULES], nrules;
     cbm_t	*major1, *major2, *minor1, *minor2;
 
@@ -894,21 +871,29 @@ int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int 
     major2 = major_cbms[phase-1][ch2];
     minor2 = minor_cbms[phase-1][ch2];
 
+    n = num_full_cbms[phase][chunk];
+
     for (i = start1; i < end1; i++) {
+	major_id1 = full_cbms[phase-1][ch1][i].major;
+	minor_id1 = full_cbms[phase-1][ch1][i].minor;
 	for (j = start2; j < end2; j++) {
+	    major_id2 = full_cbms[phase-1][ch2][j].major;
+	    minor_id2 = full_cbms[phase-1][ch2][j].minor;
 	    // major = major1 x major2
-	    nrules = cbm_intersect(rules, &rulesum, &major1[i], &major2[j]);
+	    nrules = cbm_intersect(rules, &rulesum, &major1[major_id1], &major2[major_id2]);
 	    major_id = cbm_lookup(rules, nrules, rulesum, major_cbms[phase][chunk]);
 	    if (major_id < 0)
 		major_id = new_cbm(phase, chunk, MAJOR_RULE, rules, nrules, rulesum);
 	    // minor = minor1 x minor2
-	    nrules = cbm_intersect(rules, &rulesum, &minor1[i], &minor2[j]);
+	    nrules = cbm_intersect(rules, &rulesum, &minor1[minor_id1], &minor2[minor_id2]);
 	    minor_id = cbm_lookup(rules, nrules, rulesum, minor_cbms[phase][chunk]);
 	    if (minor_id < 0)
-		minor_id = new_cbm(phase, chunk, MAJOR_RULE, rules, nrules, rulesum);
+		minor_id = new_cbm(phase, chunk, MINOR_RULE, rules, nrules, rulesum);
 	    
 	    // if this <major, minor> pair is new, add it to cbm_full set
 	    if (cbm_fullid_lookup(major_id, minor_id) < 0) {
+		if ((n & 0xFFFF) == 0) 
+		    full_cbms[phase][chunk] = realloc(full_cbms[phase][chunk], (n + 0x10000) * sizeof(cbm_fullid_t));
 		full_cbms[phase][chunk][n].major = major_id;
 		full_cbms[phase][chunk][n].minor = minor_id;
 		add_fullid_hash(full_cbms[phase][chunk][n]);
@@ -916,6 +901,7 @@ int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int 
 	    }
 	}
     }
+    num_full_cbms[phase][chunk] = n;
 }
 
 
