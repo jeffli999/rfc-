@@ -85,3 +85,67 @@ To exploit this observation for phase-table space saving, the following scheme i
 3. A data structure: block_table_t, is designed for the blocking scheme, and a new indexing method
    containing access to the block-table is designed for phase-table addressing.
     
+
+2018-03-17
+==============
+Now come back to master branch, and implement blocking mechanism without Major/Minor CBM decoupling.
+Problem to solve:
+1.  How many types of blocks?
+    POINT: all CBMs are the same in the block
+    ROW: all rows of CBMS are the same
+    COL: all columns of CBMs are the same
+    MATRIX: other situations
+2.  For MATRIX blocks, if there exist a few dirt CBMs, how to represent them conveniently s.t. a
+    space-saving type can still be applied to this block?
+    1) For a MATRIX block to be represented as a space-saving block type, it can allow at most
+       a ROW dirt, a COL dirt and a POINT dirt, therefore a 2-bit coding is used for dirt type
+    1) There are two types of dirts: 
+       a) LINE dirt; b) POINT dirt
+    2) How many dirts are allowed in a block?
+       Suppose the maximum BLOCKSIZE is 16, and a 32-bit bitmap for a row (R) or column (C)
+       respectively. Then each row or column element has 2-bit for encoding its dirt type:
+       00: not a dirt
+       01: a POINT dirt
+       10: the first LINE dirt (can be either ROW or COL)
+       11: the second LINE dirt (can be either ROW or COL)
+       Given a point [r, c] in a block, the meanings of the following combinations are:
+       [00, 00]: a non-dirt point
+       [00, 01]: a non-dirt point
+       [00, 10]: a point on a dirt column, which is the first LINE dirt
+       [00, 11]: a point on a dirt column, which is the second LINE dirt
+       ---------------------------------------------------------------------------------------------
+       [01, 00]: a non-dirt point
+       [01, 01]: a dirt point, which is the first dirty point
+       [01: 10]: a point on a dirt column, which is the first LINE dirt
+                 NOTE: if this point is different to the corresponding points on other columns of
+		 the same dirt LINE, this block should be treated as a MATRIX block
+       [01: 11]: a point on a dirt column, which is the second LINE dirt
+                 NOTE: if this point is different to the corresponding points on other columns of
+		 the same dirt LINE, this block should be treated as a MATRIX block
+       ---------------------------------------------------------------------------------------------
+       [10: 00]: a point on a dirt row, which is the first LINE dirt
+       [10, 01]: a point on a dirt row, which is the first LINE dirt
+                 NOTE: if this point is different to the corresponding points on other rows of the
+		 same dirt LINE, this block should be treated as a MATRIX block
+       [10, 10]: an INVALID combination, as 10 indicates the first LINE dirt, which cannot be
+                 both a row and a column at the same time
+       [10, 11]: a dirt point crossed by a dirt row (the first LINE dirt) and a dirt column (the
+	         second LINE dirt), and this dirt point is the second dirt point (irrespective of
+	         whether the first dirty point [01, 01] exists or not, it is always stored as the
+		 second dirt point for convenience of simple addressing and fast access)
+       ---------------------------------------------------------------------------------------------
+       [11, 00]: a point on a dirt row, which is the second LINE dirt
+       [11, 01]: a point on a dirt row, which is the second LINE dirt
+                 NOTE: if this point is different to the corrsponding points on other rows of the
+		 same dirt LINE, this block should be treated as a MATRIX block
+       [11, 10]: a dirt point crossed by a dirt row (the second LINE dirt) and a dirt column (the
+	         first LINE dirt), and this dirt point is the third dirt point (irrespective of
+	         whether the first dirt point [01, 01] exists or not, it is always stored as the
+		 third dirt point for convenience of simple addressing and fast access)
+       [11, 11]: an INVALID combination, as 11 indicates the second LINE dirt, which cannot be 
+                 both a row and a column at the same time
+       =============================================================================================
+       In summary: at most 2 LINE dirts (2-row, 2-column, or 1-row + 1-column) and 3 POINT dirts
+       ([01, 01], [10, 11], [11, 10]) are allowed. 
+       Note: rows or columns with the same values can share the same dirt LINE code; Similarly,
+       points having the same value can share the same dirt POINT code as well
