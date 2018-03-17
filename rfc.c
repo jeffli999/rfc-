@@ -673,20 +673,25 @@ int trim_redundant_rules(uint16_t *rules, int nrules, int *rulesum, int *rest_fi
 // given an end point on a chunk, collect rules covering it
 int collect_epoint_rules(int chunk, int point, int type, uint16_t *rules, int *rulesum)
 {
-    int		f, k, low, high;
+    int		f1, f2, k, low, high;
     uint16_t	nrules = 0, i;
 
-    f = chunk_to_field[chunk];
+    f1 = chunk_to_field[chunk];
+    f2 = (f1 == 0) ? 1 : 0;
     k = shamt[chunk];
     *rulesum = 0;
     for (i = 0; i < numrules; i++) {
 	// only filter out minor/major rules for SIP & DIP chunks accordingly
-	if ((f < 2) && (type == MAJOR_RULE) && is_minor_rule(i, f))
+	if ((f1 < 2) && (type == MAJOR_RULE)) {
+	    if (is_minor_rule(i, f1) || is_minor_rule(i, f2))
 	    continue;
-	if ((f < 2) && (type == MINOR_RULE) && !is_minor_rule(i, f))
+	}
+	if ((f1 < 2) && (type == MINOR_RULE)) {
+	    if ( !is_minor_rule(i, f1) && !is_minor_rule(i, f2))
 	    continue;
-	low = ruleset[i].field[f].low >> k & 0xFFFF;
-	high = ruleset[i].field[f].high >> k & 0xFFFF;
+	}
+	low = ruleset[i].field[f1].low >> k & 0xFFFF;
+	high = ruleset[i].field[f1].high >> k & 0xFFFF;
 	if (low <= point && high >= point) {
 	    rules[nrules++] = i;
 	    *rulesum += i;
@@ -873,6 +878,7 @@ int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int 
 
     n = num_full_cbms[phase][chunk];
 
+    printf("**b%dxb%d**\n", b1, b2);
     for (i = start1; i < end1; i++) {
 	major_id1 = full_cbms[phase-1][ch1][i].major;
 	minor_id1 = full_cbms[phase-1][ch1][i].minor;
@@ -899,7 +905,9 @@ int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int 
 		add_fullid_hash(full_cbms[phase][chunk][n]);
 		n++;
 	    }
+	    printf("%d/%d, ", major_id, minor_id);
 	}
+	printf("\n");
     }
     num_full_cbms[phase][chunk] = n;
 }
@@ -967,6 +975,13 @@ int p1_crossprod()
 
     // DP x SP
     //crossprod_major(1, 2);
+}
+
+
+int p2_crossprod()
+{
+    // SIP x DIP
+    crossprod_full(2, 0);
 }
 
 /*
@@ -1041,11 +1056,11 @@ void construct_rfc()
     p1_crossprod();
     printf("***Phase 1 spent %lds\n\n", (clock()-t)/1000000);
 
-    /*
     t = clock();
     p2_crossprod();
     printf("***Phase 2 spent %lds\n\n", (clock()-t)/1000000);
 
+    /*
     t = clock();
     p3_crossprod();
     printf("***Phase 3 spent %lds\n\n", (clock()-t)/1000000);
