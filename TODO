@@ -95,6 +95,7 @@ Problem to solve:
     ROW: all rows of CBMS are the same
     COL: all columns of CBMs are the same
     MATRIX: other situations
+
 2.  For MATRIX blocks, if there exist a few dirt CBMs, how to represent them conveniently s.t. a
     space-saving type can still be applied to this block?
     1) For a MATRIX block to be represented as a space-saving block type, it can allow at most
@@ -102,7 +103,7 @@ Problem to solve:
     1) There are two types of dirts: 
        a) LINE dirt; b) POINT dirt
     2) How many dirts are allowed in a block?
-       Suppose the maximum BLOCKSIZE is 16, and a 32-bit bitmap for a row (R) or column (C)
+       Suppose the maximum BLOCKSIZE is 16, and a 32-bit vector for a row (R) or column (C)
        respectively. Then each row or column element has 2-bit for encoding its dirt type:
        00: not a dirt
        01: a POINT dirt
@@ -149,3 +150,69 @@ Problem to solve:
        ([01, 01], [10, 11], [11, 10]) are allowed. 
        Note: rows or columns with the same values can share the same dirt LINE code; Similarly,
        points having the same value can share the same dirt POINT code as well
+
+3. Example blocks (from acl2-8k, phase 3):
+
+(r5, c4): 
+ 29 30  31  25 32  25  25  33 
+ 29 30  31  25 32  25  25  33 
+ 29 30  31  25 32  25  25  33 
+ 29 30  31  96 32  96  96  33 
+ 29 30  31  25 32  25  25  33 
+ 29 30  31  25 32  25  25  33 
+ 29 30  31 100 32 100 100  33 
+102 30 102 102 32 102 102 102 
+a MATRIX block with a compact representation =>
+a ROW block (29 30 31 25 32 25 25 33) with
+LINE dirt r6 = 10 (29 30 31 100 32 100 100 33),
+LINE dirt r7 = 11 (102 30 102 102 32 102 102 102),
+POINT dirt r3 = 01, c3/c5/c6 = 01
+
+(r10, c519): 
+2488 2489 2490 2491 2492 2493 2494 2495 
+524 525 526 527 528 529 530 531 
+524 525 526 527 528 529 530 531 
+524 525 526 527 528 529 530 531 
+524 525 526 527 528 529 530 531 
+524 525 526 527 528 529 530 531 
+524 525 526 527 528 529 530 531 
+524 525 526 527 528 529 530 531 
+A MATRIX block with a compact representation =>
+a ROW block (524 525 526 527 528 529 530 531) with 
+LINE dirt r0 = 10 (2488 2489 2490 2491 2492 2493 2494 2495)
+
+(r11, c23):
+2804 2804 2804 2804 2804 2805 2804 2804 
+0 0 0 0 0 0 0 0 
+3183 3183 3183 3183 3183 3183 3183 3183 
+3788 3788 3788 3788 3788 3788 3788 3788 
+0 0 0 0 0 0 0 0 
+0 0 0 0 0 0 0 0 
+0 0 0 0 0 0 0 0 
+0 0 0 0 0 0 0 0 
+A MATRIX block with multiple compact representations =>
+1)
+a POINT block (0) with 
+LINE dirt r0 = 10 (2804 2804 2804 2804 2804 2805 2804 2804)
+LINE dirt r2 = 11 (3788 3788 3788 3788 3788 3788 3788 3788)
+POINT dirt [r3 = 01, c* = 01]
+2)
+a COL block (2804 0 3183 3788 0 0 0 0) with
+POINT dirt 2805 at [r0 = 01, c5 = 01]
+    
+(r0, c0): 
+ 0  1  2  3  4  5  6  7 
+ 0  1  2  3  4  5 44  7 
+46 46 46 46 46 46 46 46 
+47 47 47 47 47 47 47 47 
+ 0  1  2  3  4  5 48  7 
+ 0  1 49 49 49 49 49 49 
+ 0  1 50  3  4  5 44  7 
+ 0  1 51  3  4  5 44  7 
+a MATRIX block unfit for compact representation
+
+4. How to decide the type of a block, and how to identify its dirts?
+1) Post-scanning of the block: a convoluted algorithm is needed for deciding a N x N matrix
+2) During block generation: when the rulelist of a CBM is crossproducted, we clearly know whether it
+   contains local rules that only appear in a single CBM or in a row/column CBMs, and it will help
+   identifying dirts and deciding block types.

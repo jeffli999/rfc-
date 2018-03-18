@@ -42,12 +42,9 @@ int		epoints[MAXCHUNKS][MAXRULES*2+2];
 int		num_epoints[MAXCHUNKS];
 
 // CBMs for each chunk at each phase: each CBM consists of major part and minor part
-cbm_t		*major_cbms[PHASES][MAXCHUNKS];
-cbm_t		*minor_cbms[PHASES][MAXCHUNKS];
-int		num_major_cbms[PHASES][MAXCHUNKS];
-int		num_minor_cbms[PHASES][MAXCHUNKS];
-cbm_id_t	*full_cbms[PHASES][MAXCHUNKS];
-int		num_full_cbms[PHASES][MAXCHUNKS];
+cbm_t		*phase_cbms[PHASES][MAXCHUNKS];
+int		phase_num_cbms[PHASES][MAXCHUNKS];
+int		cbm_sizes[PHASES][MAXCHUNKS];
 
 block_table_t	*block_tables[PHASES][MAXCHUNKS];
 // phase tables contaiting CBM ids for each chunk at each phase
@@ -61,12 +58,9 @@ int		rules_len_count[MAXRULES+1];
 // A hash table hashing on CBM's rulesum is introduced for this purpose
 // Alert: no less than 65536, otherwise phase 0 full cbm formulation will go wrong!
 #define HASH_TAB_SIZE   99787
-int     *major_cbm_hash[HASH_TAB_SIZE];
-int     *minor_cbm_hash[HASH_TAB_SIZE];
-int     major_hash_size[HASH_TAB_SIZE];   
-int     major_hash_num[HASH_TAB_SIZE];    
-int     minor_hash_size[HASH_TAB_SIZE];   
-int     minor_hash_num[HASH_TAB_SIZE];    
+int     *cbm_hash[HASH_TAB_SIZE];
+int     cbm_hash_size[HASH_TAB_SIZE];   
+int     cbm_hash_num[HASH_TAB_SIZE];    
 
 // data structures for examining the two bottleneck functions, cmb_lookup(), cbm_2intersect()
 long	hash_stats[10000];
