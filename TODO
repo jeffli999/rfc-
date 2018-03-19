@@ -212,11 +212,4 @@ POINT dirt 2805 at [r0 = 01, c5 = 01]
 a MATRIX block unfit for compact representation
 
 4. How to decide the type of a block, and how to identify its dirts?
-Step 0: When a new CBM is created, scan its rules to decide its local type (point, row, col, none).
-(NOTE: If a CBM contains point local rules or both row & col local rules, it is a point local CBM).
-Extend cbm_t with this local type field.
-Step 1: Decide whether it's a compact block (POINT, ROW, COL) or a MATRIX block.
-Step 2: For a MATRIX block, try to tranform it to a compact block with dirts.
-Step 2.1: a data structure is used for identifying LINE dirts (at most 2). Scan the block row-wise:
-at each row, if a CBM is row local, assign a LINE (10 or 11) for it. If the LINES are already used
-up (2 LINEs), MATRIX transform fails (treat it as MATRIX as the final decision).
+Step 0: When a new CBM is created, scan its rules to decide its local type (none, point, row, col).
