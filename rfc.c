@@ -523,31 +523,32 @@ void dump_cbm_rules(cbm_t *cbm)
 // a CBM is the local type if it contains a rule that only appears in this CBM
 int is_cbm_local(int phase, int chunk, uint16_t rule)
 {
-    int		f1, f2, local;
+    int		f, local;
 
     switch (phase) {
     case 0:
-	if (chunk < 2)
-	    f1 = 0;
-	else if (chunk < 4)
-	    f1 = 1;
-	local = rule_types[f1][rule];
+	f = chunk_to_field[chunk];
+	local = rule_types[f][rule];
 	break;
     case 1:
-	if (chunk == 0)
-	    f1 = 0;	// SIP
-	else if (chunk == 1)
-	    f1 = 1;	// DIP
-	local = rule_types[f1][rule];
+	if (chunk == 0) {   // SIP
+	    local = rule_types[0][rule];
+	} else if (chunk == 1) {    // DIP
+	    local = rule_types[1][rule];
+	} else {    // DP x SP
+	    local = rule_types[4][rule] && rule_types[3][rule];
+	}
 	break;
     case 2:
-	if (chunk == 0) {
-	    f1 = 0;
-	    f2 = 1;
+	if (chunk == 0) {   // SIP x DIP
+	    local = rule_types[0][rule] && rule_types[1][rule];
+	} else {    // PROTO x (DP x SP)
+	    local = rule_types[2][rule] && rule_types[4][rule] && rule_types[3][rule];
 	}
-	local = rule_types[f1][rule] && rule_types[f2][rule];
 	break;
     case 3:
+	local = rule_types[0][rule] && rule_types[1][rule] && rule_types[2][rule]
+	    && rule_types[3][rule] && rule_types[4][rule];
 	break;
     default:
 	break;
@@ -559,9 +560,9 @@ int is_cbm_local(int phase, int chunk, uint16_t rule)
 
 // intersecting rulelists of two phase-1 CBMs
 int cbm_intersect(int phase, int chunk, uint16_t *rules, int *rulesum, int *local, 
-	int ch1, int id1, int ch2, int id2)
+	int ph1, int ch1, int id1, int ph2, int ch2, int id2)
 {
-    cbm_t	*c1 = &phase_cbms[phase-1][ch1][id1], *c2 = &phase_cbms[phase-1][ch2][id2];
+    cbm_t	*c1 = &phase_cbms[ph1][ch1][id1], *c2 = &phase_cbms[ph2][ch2][id2];
     int		n = 0, ncmp = 0;
     uint16_t	i = 0, j = 0, rule;
 
@@ -576,9 +577,9 @@ int cbm_intersect(int phase, int chunk, uint16_t *rules, int *rulesum, int *loca
 		if (is_cbm_local(phase, chunk, rule)) {
 		    *local = POINT_LOCAL;
 		} else {
-		    if (is_cbm_local(phase-1, ch1, rule))
+		    if (is_cbm_local(ph1, ch1, rule))
 			*local |= 2;
-		    if (is_cbm_local(phase-1, ch2, rule))
+		    if (is_cbm_local(ph2, ch2, rule))
 			*local |= 1;
 		}
 	    }
@@ -890,7 +891,7 @@ int gen_p0_tables()
 
 int local_counts[4];
 
-int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int n1, int n2)
+int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int b1, int b2, int n1, int n2)
 {
     int		start1, end1, start2, end2, i, j, rulesum, cbm_id, local; 
     uint16_t	rules[MAXRULES], nrules;
@@ -905,13 +906,13 @@ int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int 
     if (end2 > n2)
 	end2 = n2;
 
-    cbms1 = phase_cbms[phase-1][ch1];
-    cbms2 = phase_cbms[phase-1][ch2];
+    cbms1 = phase_cbms[ph1][ch1];
+    cbms2 = phase_cbms[ph2][ch2];
 
     //printf("**b%dxb%d**\n", b1, b2);
     for (i = start1; i < end1; i++) {
 	for (j = start2; j < end2; j++) {
-	    nrules = cbm_intersect(phase, chunk, rules, &rulesum, &local, ch1, i, ch2, j);
+	    nrules = cbm_intersect(phase, chunk, rules, &rulesum, &local, ph1, ch1, i, ph2, ch2, j);
 	    cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[phase][chunk]);
 	    if (cbm_id < 0)
 		cbm_id = new_cbm(phase, chunk, rules, nrules, rulesum, local);
@@ -930,30 +931,40 @@ int crossprod_block(int phase, int chunk, int ch1, int ch2, int b1, int b2, int 
 // for chunks with both major & minor rule sets (SIP & DIP chunks)
 int crossprod_chunks(int phase, int chunk)
 {
-    int	    ch1, ch2, n1, n2, nb1, nb2, i, j, nlocals[4];
+    int	    ph1, ph2, ch1, ch2, n1, n2, nb1, nb2, i, j, nlocals[4];
 
     init_cbm_hash();
 
     local_counts[0] = local_counts[1] = local_counts[2] = local_counts[3] = 0; 
 
+    ph1 = ph2 = phase - 1;
+
     switch (phase) {
     case 1:
 	if (chunk == 0) {
 	    ch1 = 1; ch2 = 0;
-	} else {
+	} else if (chunk == 1) {
 	    ch1 = 3; ch2 = 2;
+	} else {
+	    ch1 = 6; ch2 = 5;
 	}
 	break;
     case 2:
-	ch1 = 0; ch2 = 1;
+	if (chunk == 0) {
+	    ch1 = 0; ch2 = 1;
+	} else {
+	    // ALERT: PROTO (chunk[4] in phase 0) x (DP x SP) (chunk[1] in phase 1)
+	    ph1 = 0;
+	    ch1 = 4; ch2 = 2;
+	}
 	break;
     default:	    // phase 3 => the final phase
 	ch1 = 0; ch2 = 1;
 	break;
     }
 
-    n1 = num_cbms[phase-1][ch1];
-    n2 = num_cbms[phase-1][ch2];
+    n1 = num_cbms[ph1][ch1];
+    n2 = num_cbms[ph2][ch2];
     nb1 = n1 / BLOCKSIZE;
     if (n1 % BLOCKSIZE != 0) nb1++;
     nb2 = n2 / BLOCKSIZE;
@@ -961,7 +972,7 @@ int crossprod_chunks(int phase, int chunk)
 
     for (i = 0; i < nb1; i++) {
 	for (j = 0; j < nb2; j++) {
-	    crossprod_block(phase, chunk, ch1, ch2, i, j, n1, n2);
+	    crossprod_block(phase, chunk, ph1, ch1, ph2, ch2, i, j, n1, n2);
 	}
     }
 
@@ -991,6 +1002,7 @@ int p1_crossprod()
     crossprod_chunks(1, 1);
 
     // DP x SP
+    crossprod_chunks(1, 2);
 
     bzero(intersect_stats, MAXRULES*2*sizeof(long));
 }
@@ -1004,7 +1016,17 @@ int p2_crossprod()
     // SIP x DIP
     crossprod_chunks(2, 0);
 
+    // PROTO x (DP x SP)
+    crossprod_chunks(2, 1);
+
     bzero(intersect_stats, MAXRULES*2*sizeof(long));
+}
+
+
+int p3_crossprod()
+{
+    crossprod_chunks(3, 0);
+
 }
 
 
@@ -1140,11 +1162,11 @@ void construct_rfc()
     p2_crossprod();
     printf("***Phase 2 spent %lds\n\n", (clock()-t)/1000000);
 
-    /*
     t = clock();
     p3_crossprod();
     printf("***Phase 3 spent %lds\n\n", (clock()-t)/1000000);
 
+    /*
     do_rfc_stats();
     //dump_hash_stats();
 
