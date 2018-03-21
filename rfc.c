@@ -583,6 +583,8 @@ int cbm_intersect(int phase, int chunk, uint16_t *rules, int *rulesum, int *loca
 			*local |= 1;
 		}
 	    }
+	    if (phase == 3) // for the last phase, rules beyond the first one are meaningless
+		break;
 	    i++; j++;
 	} else if (c1->rules[i] > c2->rules[j]) {
 	    j++;
