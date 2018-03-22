@@ -5,7 +5,7 @@
 #define MAXCHUNKS	7
 #define PHASES		4
 
-#define BLOCKSIZE	16	// ALERT: BLOCKSIZE <= 16 (4, 8, or 16)
+#define BLOCKSIZE	8	// ALERT: BLOCKSIZE <= 16 (4, 8, or 16)
 #define MATRIX_BLOCK	0
 #define ROW_BLOCK	1
 #define COL_BLOCK	2
@@ -22,13 +22,13 @@ typedef struct pc_rule {
 } pc_rule_t;
 
 
-enum LOCAL_TYPE {NO_LOCAL, ROW_LOCAL, COL_LOCAL, POINT_LOCAL};
+enum LOCAL_TYPE {NOT_LOCAL, ROW_LOCAL, COL_LOCAL, POINT_LOCAL};
 
 typedef struct cbm_entry {
     int		id;
     // whether it contains local rules (a rule is local if it cannot appear in other CBMs in a chunk)
     // 4 types by considering rule locals in its two crossproducting CBMs (CBM1 x CBM2): 
-    // NO_LOCAL (0b00):  not belong to the following 3 cases
+    // NOT_LOCAL (0b00):  not belong to the following 3 cases
     // COL_LOCAL (0b01): no local rules in its own, but with local rules in CBM2
     // ROW_LOCAL (0b10): no local rules in its own, but with local rules in CBM1
     // POINT_LOCAL (0b11): with local rules in its own

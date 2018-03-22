@@ -578,9 +578,9 @@ int cbm_intersect(int phase, int chunk, uint16_t *rules, int *rulesum, int *loca
 		    *local = POINT_LOCAL;
 		} else {
 		    if (is_cbm_local(ph1, ch1, rule))
-			*local |= 2;
+			*local |= ROW_LOCAL;
 		    if (is_cbm_local(ph2, ch2, rule))
-			*local |= 1;
+			*local |= COL_LOCAL;
 		}
 	    }
 	    if (phase == 3) // for the last phase, rules beyond the first one are meaningless
@@ -892,12 +892,68 @@ int gen_p0_tables()
 //--------------------------------------------------------------------------------------------------
 
 int local_counts[4];
+int block_dirt_counts[16];
+
+
+void dump_block(int phase, int block[][BLOCKSIZE], int r, int c, uint8_t dirt_code)
+{
+    int	    i, j, f;
+
+    printf("block[%d, %d]: %d\n", r, c, dirt_code);
+    for (i = 0; i < BLOCKSIZE; i++) {
+	for (j = 0; j < BLOCKSIZE; j++) {
+	    if (phase == 3) {
+		printf("%d*%3d/", phase_cbms[3][0][block[i][j]].local, 
+			phase_cbms[3][0][block[i][j]].rules[0]);
+		/*
+		for (f = 0; f < FIELDS; f++)
+		    printf("%d*", rule_types[f][block[i][j]]);
+		printf("|");
+		*/
+	    }
+	    printf("%3d ", block[i][j]);
+	}
+	printf("\n");
+    }
+}
+
+
+uint8_t get_block_dirts(uint8_t *row, uint8_t row_size, uint8_t *col, uint8_t col_size)
+{
+    int	    i, nrows = 0, ncols = 0, npoints = 0, code;
+    
+    for (i = 0; i < row_size; i++) {
+	if (row[i] == ROW_LOCAL)
+	    nrows++;
+	else if (row[i] == POINT_LOCAL)
+	    npoints++;
+    }
+    for (i = 0; i < col_size; i++) {
+	if (col[i] == COL_LOCAL)
+	    ncols++;
+    }
+    code = nrows > ncols ? ncols : nrows;
+    if (code > 3)
+	code = 3;
+    if (npoints > 3)
+	npoints = 3;
+    code = (code << 2) + npoints;
+    return code;
+}
+
 
 int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int b1, int b2, int n1, int n2)
 {
-    int		start1, end1, start2, end2, i, j, rulesum, cbm_id, local; 
+    int		start1, end1, start2, end2, i, j, rulesum, cbm_id; 
+    int		local_type; 
     uint16_t	rules[MAXRULES], nrules;
     cbm_t	*cbms1, *cbms2;
+    uint8_t	row_dirts[BLOCKSIZE], col_dirts[BLOCKSIZE], dirt_code;
+    int		block[BLOCKSIZE][BLOCKSIZE];
+
+    for (i = 0; i < BLOCKSIZE; i++) {
+	row_dirts[i] = col_dirts[i] = NOT_LOCAL;
+    }
 
     start1 = b1 * BLOCKSIZE;
     end1 = (b1 + 1) * BLOCKSIZE;
@@ -914,19 +970,58 @@ int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, in
     //printf("**b%dxb%d**\n", b1, b2);
     for (i = start1; i < end1; i++) {
 	for (j = start2; j < end2; j++) {
-	    nrules = cbm_intersect(phase, chunk, rules, &rulesum, &local, ph1, ch1, i, ph2, ch2, j);
+	    nrules = cbm_intersect(phase, chunk, rules, &rulesum, &local_type, ph1, ch1, i, ph2, ch2, j);
 	    cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[phase][chunk]);
 	    if (cbm_id < 0)
-		cbm_id = new_cbm(phase, chunk, rules, nrules, rulesum, local);
-	    else if (phase == 2 && local == 3)
-		printf("[%d, %d] = %d\n", i, j, cbm_id);
-	    
-	    local_counts[local]++;
+		cbm_id = new_cbm(phase, chunk, rules, nrules, rulesum, local_type);
+	    else if (phase == 2 && local_type == POINT_LOCAL)
+		printf("Wrong CBM: [%d, %d] = %d\n", i, j, cbm_id);
 
-	    //if (phase == 2 && local == POINT_LOCAL)
-	//	printf("[%d, %d] = %d\n", i, j, cbm_id);
+	    block[i-start1][j-start2] = cbm_id;
+	    
+	    local_counts[local_type]++;
+	    switch (local_type) {
+	    case ROW_LOCAL:
+		row_dirts[i-start1] = ROW_LOCAL;
+		break;
+	    case COL_LOCAL:
+		col_dirts[j-start2] = COL_LOCAL;
+		break;
+	    case POINT_LOCAL:
+		if (row_dirts[i-start1] == POINT_LOCAL)
+		    row_dirts[i-start1] = ROW_LOCAL;
+		else if (row_dirts[i-start1] == NOT_LOCAL) 
+		    row_dirts[i-start1] = POINT_LOCAL;
+		if (col_dirts[j-start2] == POINT_LOCAL)
+		    col_dirts[j-start2] = COL_LOCAL;
+		else if (col_dirts[j-start2] == NOT_LOCAL) 
+		    col_dirts[j-start2] = POINT_LOCAL;
+		break;
+	    default:
+		break;
+	    }
 	}
     }
+
+    dirt_code = get_block_dirts(row_dirts, end1-start1+1, col_dirts, end2-start2+1);
+    block_dirt_counts[dirt_code]++;
+
+    /*
+    if (dirt_code == 4 || dirt_code == 12 || dirt_code == 20 || dirt_code == 24 || dirt_code == 28) {
+    */
+    if (dirt_code == 0) {
+	if ((end1 != n1) && (end2 != n2)) {
+	    printf("r:");
+	    for (i = 0; i < BLOCKSIZE; i++)
+		printf(" %d", row_dirts[i]);
+	    printf("\nc:");
+	    for (i = 0; i < BLOCKSIZE; i++)
+		printf(" %d", col_dirts[i]);
+	    printf("\n");
+	    dump_block(phase, block, b1, b2, dirt_code);
+	}
+    }
+
 }
 
 
@@ -934,6 +1029,9 @@ int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, in
 int crossprod_chunks(int phase, int chunk)
 {
     int	    ph1, ph2, ch1, ch2, n1, n2, nb1, nb2, i, j, nlocals[4];
+
+    for (i = 0; i < 16; i++)
+	block_dirt_counts[i] = 0;
 
     init_cbm_hash();
 
@@ -988,6 +1086,12 @@ int crossprod_chunks(int phase, int chunk)
     printf("Chunk[%d]: %d CBMs; locals: [%d/%d, %d/%d, %d/%d, %d/%d]\n", chunk, num_cbms[phase][chunk], 
 	    nlocals[0], local_counts[0], nlocals[1], local_counts[1], 
 	    nlocals[2], local_counts[2], nlocals[3], local_counts[3]);
+    printf("Chunk[%d] dirts:", chunk);
+    for (i = 0; i < 16; i++) {
+	if (block_dirt_counts[i] > 0)
+	    printf("  %d/#%d", i, block_dirt_counts[i]);
+    }
+    printf("\n");
 }
 
 
