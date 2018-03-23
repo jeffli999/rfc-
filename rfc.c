@@ -902,16 +902,10 @@ void dump_block(int phase, int block[][BLOCKSIZE], int r, int c, uint8_t dirt_co
     printf("block[%d, %d]: %d\n", r, c, dirt_code);
     for (i = 0; i < BLOCKSIZE; i++) {
 	for (j = 0; j < BLOCKSIZE; j++) {
-	    if (phase == 3) {
-		printf("%d*%3d/", phase_cbms[3][0][block[i][j]].local, 
-			phase_cbms[3][0][block[i][j]].rules[0]);
-		/*
-		for (f = 0; f < FIELDS; f++)
-		    printf("%d*", rule_types[f][block[i][j]]);
-		printf("|");
-		*/
-	    }
-	    printf("%3d ", block[i][j]);
+	    if (phase == 3)
+		printf("%3d ", phase_cbms[3][0][block[i][j]].rules[0]);
+	    else
+		printf("%3d ", block[i][j]);
 	}
 	printf("\n");
     }
@@ -941,6 +935,7 @@ uint8_t get_block_dirts(uint8_t *row, uint8_t row_size, uint8_t *col, uint8_t co
     return code;
 }
 
+int p3_cbm_counts[MAXRULES];
 
 int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int b1, int b2, int n1, int n2)
 {
@@ -976,6 +971,8 @@ int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, in
 		cbm_id = new_cbm(phase, chunk, rules, nrules, rulesum, local_type);
 	    else if (phase == 2 && local_type == POINT_LOCAL)
 		printf("Wrong CBM: [%d, %d] = %d\n", i, j, cbm_id);
+	    if (phase == 3)
+		p3_cbm_counts[rules[0]]++;
 
 	    block[i-start1][j-start2] = cbm_id;
 	    
@@ -1131,8 +1128,13 @@ int p2_crossprod()
 
 int p3_crossprod()
 {
-    crossprod_chunks(3, 0);
+    int	    i;
 
+    crossprod_chunks(3, 0);
+    
+    qsort(p3_cbm_counts, numrules, sizeof(int), point_cmp);
+    for (i = 0; i < numrules; i++)
+	printf("R%d: %d\n", i, p3_cbm_counts[i]);
 }
 
 
