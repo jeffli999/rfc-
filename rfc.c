@@ -799,7 +799,7 @@ void dump_block(int phase, int block[][BLOCKSIZE], int r, int c)
 
 // Scan a row in a block to get the prime CBM in this row. Return 1 if success (no more than one
 // dirt in this row), otherwise return 0 (2+ dirts)
-scan_one_row(int block[][BLOCKSIZE], int row, int col_size, int *primes, uint8_t *dirt_cols)
+scan_one_row(int block[][BLOCKSIZE], int row, int col_size, int *primes, int *dirt_cols)
 {
     int	    i, j, ids[BLOCKSIZE], id_counts[BLOCKSIZE], num_ids = 0, prime_id, dirt_id;
 
@@ -839,13 +839,13 @@ scan_one_row(int block[][BLOCKSIZE], int row, int col_size, int *primes, uint8_t
 
 
 int row_dirt_encode(int block[][BLOCKSIZE], int row_size, int col_size, 
-	uint8_t *dirt_locs, dirt_code_t *dirt_code, int *dirts)
+	int *dirt_locs, dirt_code_t *dirt_code, int *dirts)
 {
     int	    i, j, num_dirts = 0;
 
     num_dirts = 0;
     for (i = 0; i < row_size; i++) {
-	if (dirt_locs[i] = 0xFF) {	// no dirt in this row
+	if (dirt_locs[i] == 0xFF) {	// no dirt in this row
 	    dirt_code[i].id = 0xF;
 	    continue;
 	}
@@ -857,6 +857,7 @@ int row_dirt_encode(int block[][BLOCKSIZE], int row_size, int col_size,
 		break;
 	    }
 	}
+
 	if (j == num_dirts) {
 	    if (num_dirts == 0xF)   // exceeding 15 dirts, encoding failed and not a row-type block
 		return -1;   
@@ -874,7 +875,7 @@ int scan_rows(int block[][BLOCKSIZE], int row_size, int col_size, int *row_prime
 	dirt_code_t *dirt_code, int *dirts)
 {
     int	    i, j, num_dirts, good_row;
-    uint8_t dirt_locs[BLOCKSIZE];
+    int	    dirt_locs[BLOCKSIZE];
 
     for (i = 0; i < row_size; i++) {
 	good_row = scan_one_row(block, i, col_size, row_primes, dirt_locs);
@@ -890,7 +891,7 @@ int scan_rows(int block[][BLOCKSIZE], int row_size, int col_size, int *row_prime
 
 // Scan a column in a block to get the prime CBM in this column. Return 1 if success (no more than one
 // dirt in this column), otherwise return 0 (2+ dirts)
-scan_one_col(int block[][BLOCKSIZE], int col, int row_size, int *primes, uint8_t *dirt_rows)
+scan_one_col(int block[][BLOCKSIZE], int col, int row_size, int *primes, int *dirt_rows)
 {
     int	    i, j, ids[BLOCKSIZE], id_counts[BLOCKSIZE], num_ids = 0, prime_id, dirt_id;
 
@@ -930,13 +931,13 @@ scan_one_col(int block[][BLOCKSIZE], int col, int row_size, int *primes, uint8_t
 
 
 int col_dirt_encode(int block[][BLOCKSIZE], int row_size, int col_size, 
-	uint8_t *dirt_locs, dirt_code_t *dirt_code, int *dirts)
+	int *dirt_locs, dirt_code_t *dirt_code, int *dirts)
 {
     int	    i, j, num_dirts = 0;
 
     num_dirts = 0;
     for (i = 0; i < col_size; i++) {
-	if (dirt_locs[i] = 0xFF) {	// no dirt in this column
+	if (dirt_locs[i] == 0xFF) {	// no dirt in this column
 	    dirt_code[i].id = 0xF;
 	    continue;
 	}
@@ -965,7 +966,7 @@ int scan_cols(int block[][BLOCKSIZE], int row_size, int col_size, int *col_prime
 	dirt_code_t *dirt_code, int *dirts)
 {
     int	    i, j, num_dirts, good_col;
-    uint8_t dirt_locs[BLOCKSIZE];
+    int	    dirt_locs[BLOCKSIZE];
 
     for (i = 0; i < col_size; i++) {
 	good_col = scan_one_col(block, i, row_size, col_primes, dirt_locs);
@@ -1072,7 +1073,7 @@ int new_block(int phase, int chunk, int block_type, int block[][BLOCKSIZE],
 	break;
     case COL_BLOCK:
 	table[n].id = col_table_sizes[phase][chunk];
-	new_row_block(phase, chunk, prime_cbms, dirt_code, dirts, num_dirts);
+	new_col_block(phase, chunk, prime_cbms, dirt_code, dirts, num_dirts);
 	break;
     default:	    // MATRIX_BLOCK
 	table[n].id = matrix_table_sizes[phase][chunk];
@@ -1147,15 +1148,72 @@ int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, in
 }
 
 
-void block_table_stats(int phase, int chunk)
+int chunk_table_stats(int phase, int chunk)
 {
+    int		i, id, point_dirts = 0, row_dirts = 0, col_dirts = 0; 
+    int		prime_size, table_size, dirt_size, total_size;
+    int		pblock_size = 8 + BLOCKSIZE;
+    int		rblock_size = BLOCKSIZE*4 + 4 + BLOCKSIZE;
+    int		cblock_size = rblock_size;
+    int		mblock_size = BLOCKSIZE*BLOCKSIZE*4;
+    block_entry_t   *table = block_id_tables[phase][chunk];
+
+    for (i = 0; i < block_table_sizes[phase][chunk]; i++) {
+	id = table[i].id;
+	switch (table[i].type) {
+	case POINT_BLOCK:
+	    point_dirts += point_block_tables[phase][chunk][id].num_dirts;
+	    break;
+	case ROW_BLOCK:
+	    row_dirts += row_block_tables[phase][chunk][id].num_dirts;
+	    break;
+	case COL_BLOCK:
+	    col_dirts += col_block_tables[phase][chunk][id].num_dirts;
+	    break;
+	default:
+	    break;
+	}
+    }
+
+    table_size = block_table_sizes[phase][chunk]*sizeof(block_entry_t);
+    printf("block_table[%4d]:\t%d bytes\n", block_table_sizes[phase][chunk], table_size);
+    total_size = table_size;
+
+    prime_size = point_table_sizes[phase][chunk] * pblock_size;
+    dirt_size = point_dirts * sizeof(int);
+    table_size = prime_size + dirt_size;
+    printf("point_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", point_table_sizes[phase][chunk],
+	    table_size, prime_size, dirt_size);
+    total_size += table_size;
+
+    prime_size = row_table_sizes[phase][chunk] * rblock_size;
+    dirt_size = row_dirts * sizeof(int);
+    table_size = prime_size + dirt_size;
+    printf("row_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", row_table_sizes[phase][chunk], 
+	    table_size, prime_size, dirt_size);
+    total_size += table_size;
+
+    prime_size = col_table_sizes[phase][chunk] * cblock_size;
+    dirt_size = col_dirts * sizeof(int);
+    table_size = prime_size + dirt_size;
+    printf("col_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", col_table_sizes[phase][chunk], 
+	    table_size, prime_size, dirt_size);
+    total_size += table_size;
+
+    table_size = matrix_table_sizes[phase][chunk] * mblock_size;
+    printf("matrix_table[%4d]:\t%d bytes\n", matrix_table_sizes[phase][chunk], table_size);
+    total_size += table_size;
+
+    printf("Chunk total size:\t%d bytes\n", total_size);
+
+    return total_size;
 }
 
 
 // for chunks with both major & minor rule sets (SIP & DIP chunks)
 int crossprod_chunks(int phase, int chunk)
 {
-    int	    ph1, ph2, ch1, ch2, n1, n2, nb1, nb2, i, j;
+    int	    ph1, ph2, ch1, ch2, n1, n2, nb1, nb2, i, j, chunk_size;
 
     init_cbm_hash();
 
@@ -1201,7 +1259,9 @@ int crossprod_chunks(int phase, int chunk)
     free_cbm_hash();
 
     printf("Chunk[%d]: %d CBMs\n", chunk, num_cbms[phase][chunk]);
-    block_table_stats(phase, chunk);
+    chunk_size = chunk_table_stats(phase, chunk);
+
+    return chunk_size;
 }
 
 
@@ -1210,17 +1270,21 @@ int crossprod_chunks(int phase, int chunk)
 // Alert 2: be careful of the order of crosspoducting for each pair of chunks (as commented in below code)
 int p1_crossprod()
 {
+    int	    phase_size;
 
     // SIP[31:16] x SIP[15:0]
-    crossprod_chunks(1, 0);
+    phase_size = crossprod_chunks(1, 0);
 
     // DIP[31:16] x DIP[15:0]
-    crossprod_chunks(1, 1);
+    phase_size += crossprod_chunks(1, 1);
 
     // DP x SP
-    crossprod_chunks(1, 2);
+    phase_size += crossprod_chunks(1, 2);
 
     bzero(intersect_stats, MAXRULES*2*sizeof(long));
+
+    printf("Phase total size:\t%d bytes\n", phase_size);
+    return phase_size;
 }
 
 
@@ -1229,21 +1293,29 @@ int p1_crossprod()
 // Alert: pay attention of their orders in crossproducting
 int p2_crossprod()
 {
+    int	    phase_size;
+
     // SIP x DIP
-    crossprod_chunks(2, 0);
+    phase_size = crossprod_chunks(2, 0);
 
     // PROTO x (DP x SP)
-    crossprod_chunks(2, 1);
+    phase_size += crossprod_chunks(2, 1);
 
     bzero(intersect_stats, MAXRULES*2*sizeof(long));
+
+    printf("Phase total size:\t%d bytes\n", phase_size);
+    return phase_size;
 }
 
 
 int p3_crossprod()
 {
-    int	    i;
+    int	    phase_size;
 
-    crossprod_chunks(3, 0);
+    phase_size = crossprod_chunks(3, 0);
+
+    printf("Phase total size:\t%d bytes\n", phase_size);
+    return phase_size;
 }
 
 
@@ -1362,6 +1434,7 @@ int do_rfc_stats()
 // constructing the RFC tables with a 3-phase process
 void construct_rfc()
 {
+    int	    total_size;
     clock_t t;
 
     gen_endpoints();
@@ -1369,18 +1442,19 @@ void construct_rfc()
 
     t = clock();
     gen_p0_tables();
+    total_size = 65536 * 7 * sizeof(int);
     printf("***Phase 0 spent %lds\n\n", (clock()-t)/1000000);
 
     t = clock();
-    p1_crossprod();
+    total_size += p1_crossprod();
     printf("***Phase 1 spent %lds\n\n", (clock()-t)/1000000);
 
     t = clock();
-    p2_crossprod();
+    total_size += p2_crossprod();
     printf("***Phase 2 spent %lds\n\n", (clock()-t)/1000000);
 
     t = clock();
-    p3_crossprod();
+    total_size += p3_crossprod();
     printf("***Phase 3 spent %lds\n\n", (clock()-t)/1000000);
 
     /*
@@ -1388,7 +1462,7 @@ void construct_rfc()
     //dump_hash_stats();
 
     */
-    printf("\n");
+    printf("total size: %d\n\n", total_size);
 }
 
 
