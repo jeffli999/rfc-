@@ -46,16 +46,18 @@ cbm_t		*phase_cbms[PHASES][MAXCHUNKS];
 int		num_cbms[PHASES][MAXCHUNKS];
 int		cbm_sizes[PHASES][MAXCHUNKS];
 
-block_entry_t	*block_id_tables[PHASES][MAXCHUNKS];
-int		block_table_sizes[PHASES][MAXCHUNKS];
-point_block_t	*point_block_tables[PHASES][MAXCHUNKS];
-int		point_table_sizes[PHASES][MAXCHUNKS];
-array_block_t	*row_block_tables[PHASES][MAXCHUNKS];
-int		row_table_sizes[PHASES][MAXCHUNKS];
-array_block_t	*col_block_tables[PHASES][MAXCHUNKS];
-int		col_table_sizes[PHASES][MAXCHUNKS];
-matrix_block_t	*matrix_block_tables[PHASES][MAXCHUNKS];
-int		matrix_table_sizes[PHASES][MAXCHUNKS];
+// each table[phase][chunk][0] is for crossproduct table before cbm shuffling, and
+// each table[phase][chunk][1] is for crossproduct table after cbm shuffling
+block_entry_t	*block_id_tables[PHASES][MAXCHUNKS][2];
+int		block_table_sizes[PHASES][MAXCHUNKS][2];
+point_block_t	*point_block_tables[PHASES][MAXCHUNKS][2];
+int		point_table_sizes[PHASES][MAXCHUNKS][2];
+array_block_t	*row_block_tables[PHASES][MAXCHUNKS][2];
+int		row_table_sizes[PHASES][MAXCHUNKS][2];
+array_block_t	*col_block_tables[PHASES][MAXCHUNKS][2];
+int		col_table_sizes[PHASES][MAXCHUNKS][2];
+matrix_block_t	*matrix_block_tables[PHASES][MAXCHUNKS][2];
+int		matrix_table_sizes[PHASES][MAXCHUNKS][2];
 
 /*
 // phase tables contaiting CBM ids for each chunk at each phase
@@ -387,6 +389,7 @@ int new_cbm(int phase, int chunk, uint16_t *rules, uint16_t nrules, int rulesum)
     cbm_id = num_cbms[phase][chunk];
     cbms[cbm_id].id = cbm_id;
     cbms[cbm_id].rulesum = rulesum;
+    cbms[cbm_id].ndirts = 0;
     cbms[cbm_id].nrules = nrules;
     cbms[cbm_id].rules = (uint16_t *) malloc(nrules*sizeof(uint16_t));
     memcpy(cbms[cbm_id].rules, rules, nrules*sizeof(uint16_t));
@@ -982,8 +985,8 @@ int scan_cols(int block[][BLOCKSIZE], int row_size, int col_size, int *col_prime
 
 int new_point_block(int phase, int chunk, int *primes, dirt_code_t *dirt_code, int *dirts, int num_dirts)
 {
-    int		    n = point_table_sizes[phase][chunk];
-    point_block_t   *table = point_block_tables[phase][chunk];
+    int		    n = point_table_sizes[phase][chunk][0];
+    point_block_t   *table = point_block_tables[phase][chunk][0];
 
     if ((n & 0xFF) == 0)
 	table = realloc(table, (n + 0x100) * sizeof(point_block_t));
@@ -994,15 +997,15 @@ int new_point_block(int phase, int chunk, int *primes, dirt_code_t *dirt_code, i
     memcpy(table[n].dirts, dirts, num_dirts * sizeof(int));
     table[n].num_dirts = num_dirts;	// can be removed in production system
 
-    point_table_sizes[phase][chunk]++;
-    point_block_tables[phase][chunk] = table;
+    point_table_sizes[phase][chunk][0]++;
+    point_block_tables[phase][chunk][0] = table;
 }
 
 
 int new_row_block(int phase, int chunk, int *primes, dirt_code_t *dirt_code, int *dirts, int num_dirts)
 {
-    int		    n = row_table_sizes[phase][chunk];
-    array_block_t   *table = row_block_tables[phase][chunk];
+    int		    n = row_table_sizes[phase][chunk][0];
+    array_block_t   *table = row_block_tables[phase][chunk][0];
 
     if ((n & 0xFF) == 0)
 	table = realloc(table, (n + 0x100) * sizeof(array_block_t));
@@ -1013,15 +1016,15 @@ int new_row_block(int phase, int chunk, int *primes, dirt_code_t *dirt_code, int
     memcpy(table[n].dirts, dirts, num_dirts * sizeof(int));
     table[n].num_dirts = num_dirts;	// can be removed in production system
 
-    row_table_sizes[phase][chunk]++;
-    row_block_tables[phase][chunk] = table;
+    row_table_sizes[phase][chunk][0]++;
+    row_block_tables[phase][chunk][0] = table;
 }
 
 
 int new_col_block(int phase, int chunk, int *primes, dirt_code_t *dirt_code, int *dirts, int num_dirts)
 {
-    int		    n = col_table_sizes[phase][chunk];
-    array_block_t   *table = col_block_tables[phase][chunk];
+    int		    n = col_table_sizes[phase][chunk][0];
+    array_block_t   *table = col_block_tables[phase][chunk][0];
 
     if ((n & 0xFF) == 0)
 	table = realloc(table, (n + 0x100) * sizeof(array_block_t));
@@ -1032,31 +1035,35 @@ int new_col_block(int phase, int chunk, int *primes, dirt_code_t *dirt_code, int
     memcpy(table[n].dirts, dirts, num_dirts * sizeof(int));
     table[n].num_dirts = num_dirts;	// can be removed in production system
 
-    col_table_sizes[phase][chunk]++;
-    col_block_tables[phase][chunk] = table;
+    col_table_sizes[phase][chunk][0]++;
+    col_block_tables[phase][chunk][0] = table;
 }
 
 
-int new_matrix_block(int phase, int chunk, int block[][BLOCKSIZE])
+int new_matrix_block(int phase, int chunk, int b1, int b2, int block[][BLOCKSIZE], int row_size, int col_size)
 {
-    int		    n = matrix_table_sizes[phase][chunk];
-    matrix_block_t   *table = matrix_block_tables[phase][chunk];
+    int		    n = matrix_table_sizes[phase][chunk][0];
+    matrix_block_t   *table = matrix_block_tables[phase][chunk][0];
 
     if ((n & 0xFF) == 0)
 	table = realloc(table, (n + 0x100) * sizeof(matrix_block_t));
 
-    memcpy(table[n].cbms, block, sizeof(matrix_block_t));
+    table[n].row_block = b1;
+    table[n].col_block = b2;
+    table[n].row_size = row_size;
+    table[n].col_size = col_size;
+    memcpy(table[n].cbms, block, BLOCKSIZE*BLOCKSIZE*sizeof(int));
 
-    matrix_table_sizes[phase][chunk]++;
-    matrix_block_tables[phase][chunk] = table;
+    matrix_table_sizes[phase][chunk][0]++;
+    matrix_block_tables[phase][chunk][0] = table;
 }
 
 
-int new_block(int phase, int chunk, int block_type, int block[][BLOCKSIZE],
-	int *prime_cbms, dirt_code_t *dirt_code, int *dirts, int num_dirts)
+int new_block(int phase, int chunk, int b1, int b2, int block_type, int block[][BLOCKSIZE], 
+	int row_size, int col_size, int *prime_cbms, dirt_code_t *dirt_code, int *dirts, int num_dirts)
 {
-    int		    n = block_table_sizes[phase][chunk];
-    block_entry_t   *table = block_id_tables[phase][chunk];
+    int		    n = block_table_sizes[phase][chunk][0];
+    block_entry_t   *table = block_id_tables[phase][chunk][0];
 
     if ((n & 0xFF) == 0)
 	table = realloc(table, (n + 0x100) * sizeof(block_entry_t));
@@ -1064,29 +1071,29 @@ int new_block(int phase, int chunk, int block_type, int block[][BLOCKSIZE],
     table[n].type = block_type;
     switch (block_type) {
     case POINT_BLOCK:
-	table[n].id = point_table_sizes[phase][chunk];
+	table[n].id = point_table_sizes[phase][chunk][0];
 	new_point_block(phase, chunk, prime_cbms, dirt_code, dirts, num_dirts);
 	break;
     case ROW_BLOCK:
-	table[n].id = row_table_sizes[phase][chunk];
+	table[n].id = row_table_sizes[phase][chunk][0];
 	new_row_block(phase, chunk, prime_cbms, dirt_code, dirts, num_dirts);
 	break;
     case COL_BLOCK:
-	table[n].id = col_table_sizes[phase][chunk];
+	table[n].id = col_table_sizes[phase][chunk][0];
 	new_col_block(phase, chunk, prime_cbms, dirt_code, dirts, num_dirts);
 	break;
     default:	    // MATRIX_BLOCK
-	table[n].id = matrix_table_sizes[phase][chunk];
-	new_matrix_block(phase, chunk, block);
+	table[n].id = matrix_table_sizes[phase][chunk][0];
+	new_matrix_block(phase, chunk, b1, b2, block, row_size, col_size);
 	break;
     }
 
-    block_table_sizes[phase][chunk]++;
-    block_id_tables[phase][chunk] = table;
+    block_table_sizes[phase][chunk][0]++;
+    block_id_tables[phase][chunk][0] = table;
 }
 
 
-int compact_block(int phase, int chunk, int b1, int b2, int block[][BLOCKSIZE], int row_size, int col_size)
+int add_block(int phase, int chunk, int b1, int b2, int block[][BLOCKSIZE], int row_size, int col_size)
 {
     int		i, prime_cbms[BLOCKSIZE], dirt_cbms[BLOCKSIZE], num_dirts, block_type = MATRIX_BLOCK;
     dirt_code_t	dirt_code[BLOCKSIZE];
@@ -1106,14 +1113,16 @@ int compact_block(int phase, int chunk, int b1, int b2, int block[][BLOCKSIZE], 
 	    block_type = COL_BLOCK;
     }
 
-    new_block(phase, chunk, block_type, block, prime_cbms, dirt_code, dirt_cbms, num_dirts);
+    new_block(phase, chunk, b1, b2, block_type, block, row_size, col_size, prime_cbms, 
+	    dirt_code, dirt_cbms, num_dirts);
     return block_type;
 }
 
 
-int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int b1, int b2, int n1, int n2)
+int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int b1, int b2)
 {
     int		row_start, row_size, col_start, col_size, i, j, rulesum, cbm_id; 
+    int		n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2];
     uint16_t	rules[MAXRULES], nrules;
     cbm_t	*cbms1, *cbms2;
     int		block[BLOCKSIZE][BLOCKSIZE];
@@ -1144,7 +1153,7 @@ int crossprod_block(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, in
 	}
     }
 
-    compact_block(phase, chunk, b1, b2, block, row_size, col_size);
+    add_block(phase, chunk, b1, b2, block, row_size, col_size);
 }
 
 
@@ -1156,57 +1165,279 @@ int chunk_table_stats(int phase, int chunk)
     int		rblock_size = BLOCKSIZE*4 + 4 + BLOCKSIZE;
     int		cblock_size = rblock_size;
     int		mblock_size = BLOCKSIZE*BLOCKSIZE*4;
-    block_entry_t   *table = block_id_tables[phase][chunk];
+    block_entry_t   *table = block_id_tables[phase][chunk][0];
 
-    for (i = 0; i < block_table_sizes[phase][chunk]; i++) {
+    for (i = 0; i < block_table_sizes[phase][chunk][0]; i++) {
 	id = table[i].id;
 	switch (table[i].type) {
 	case POINT_BLOCK:
-	    point_dirts += point_block_tables[phase][chunk][id].num_dirts;
+	    point_dirts += point_block_tables[phase][chunk][0][id].num_dirts;
 	    break;
 	case ROW_BLOCK:
-	    row_dirts += row_block_tables[phase][chunk][id].num_dirts;
+	    row_dirts += row_block_tables[phase][chunk][0][id].num_dirts;
 	    break;
 	case COL_BLOCK:
-	    col_dirts += col_block_tables[phase][chunk][id].num_dirts;
+	    col_dirts += col_block_tables[phase][chunk][0][id].num_dirts;
 	    break;
 	default:
 	    break;
 	}
     }
 
-    table_size = block_table_sizes[phase][chunk]*sizeof(block_entry_t);
-    printf("block_table[%4d]:\t%d bytes\n", block_table_sizes[phase][chunk], table_size);
+    table_size = block_table_sizes[phase][chunk][0]*sizeof(block_entry_t);
+    printf("block_table[%4d]:\t%d bytes\n", block_table_sizes[phase][chunk][0], table_size);
     total_size = table_size;
 
-    prime_size = point_table_sizes[phase][chunk] * pblock_size;
+    prime_size = point_table_sizes[phase][chunk][0] * pblock_size;
     dirt_size = point_dirts * sizeof(int);
     table_size = prime_size + dirt_size;
-    printf("point_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", point_table_sizes[phase][chunk],
+    printf("point_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", point_table_sizes[phase][chunk][0],
 	    table_size, prime_size, dirt_size);
     total_size += table_size;
 
-    prime_size = row_table_sizes[phase][chunk] * rblock_size;
+    prime_size = row_table_sizes[phase][chunk][0] * rblock_size;
     dirt_size = row_dirts * sizeof(int);
     table_size = prime_size + dirt_size;
-    printf("row_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", row_table_sizes[phase][chunk], 
+    printf("row_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", row_table_sizes[phase][chunk][0], 
 	    table_size, prime_size, dirt_size);
     total_size += table_size;
 
-    prime_size = col_table_sizes[phase][chunk] * cblock_size;
+    prime_size = col_table_sizes[phase][chunk][0] * cblock_size;
     dirt_size = col_dirts * sizeof(int);
     table_size = prime_size + dirt_size;
-    printf("col_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", col_table_sizes[phase][chunk], 
+    printf("col_table[%4d]:\t%d bytes (prime: %d, dirts: %d)\n", col_table_sizes[phase][chunk][0], 
 	    table_size, prime_size, dirt_size);
     total_size += table_size;
 
-    table_size = matrix_table_sizes[phase][chunk] * mblock_size;
-    printf("matrix_table[%4d]:\t%d bytes\n", matrix_table_sizes[phase][chunk], table_size);
+    table_size = matrix_table_sizes[phase][chunk][0] * mblock_size;
+    printf("matrix_table[%4d]:\t%d bytes\n", matrix_table_sizes[phase][chunk][0], table_size);
     total_size += table_size;
 
     printf("Chunk total size:\t%d bytes\n", total_size);
 
     return total_size;
+}
+
+
+void add_dirt(int ph1, int ch1, int cbm1, int ph2, int ch2, int cbm2)
+{
+    phase_cbms[ph1][ch1][cbm1].ndirts++;
+    phase_cbms[ph2][ch2][cbm2].ndirts++;
+}
+
+
+void scan_block_dirts(matrix_block_t *block, int ph1, int ch1, int ph2, int ch2)
+{
+    typedef struct {
+	int	cbm_id;
+	int	count;
+    } cbm_count_t;
+
+    int		i, j, k, num_primes = 0, dirt_thresh, cbm1_id, cbm2_id;
+    cbm_count_t	primes[BLOCKSIZE*BLOCKSIZE];
+
+    for (i = 0; i < block->row_size; i++) {
+	for (j = 0; j < block->col_size; j++) {
+	    for (k = 0; k < num_primes; k++) {
+		if (block->cbms[i][j] == primes[k].cbm_id) {
+		    primes[k].count++;
+		    break;
+		}
+	    }
+	    if (k == num_primes) {
+		primes[k].cbm_id = block->cbms[i][j];
+		primes[k].count = 1;
+		num_primes++;
+	    }
+	}
+    }
+
+    dirt_thresh = block->row_size < block->col_size ? block->row_size : block->col_size;
+    dirt_thresh >>= 1;
+
+    cbm1_id = block->row_block * BLOCKSIZE;
+    for (i = 0; i < block->row_size; i++) {
+	cbm2_id = block->col_block * BLOCKSIZE;
+	for (j = 0; j < block->col_size; j++) {
+	    for (k = 0; k < num_primes; k++) {
+		if (block->cbms[i][j] == primes[k].cbm_id) {
+		    if (primes[k].count < dirt_thresh)
+			add_dirt(ph1, ch1, cbm1_id, ph2, ch2, cbm2_id);
+		    break;
+		}
+	    }
+	    cbm2_id++;
+	}
+	cbm1_id++;
+    }
+
+}
+
+
+static int cbm_dirt_cmp(const void *p, const void *q)
+{
+    if (((cbm_t *)p)->ndirts > ((cbm_t *)q)->ndirts)
+	return 1;
+    else if (((cbm_t *)p)->ndirts < ((cbm_t *)q)->ndirts)                                                   
+	return -1;                                                     
+    else
+	return 0;                                                                                   
+}
+
+
+void sort_cbms_by_dirts(int phase, int chunk)
+{
+    qsort(phase_cbms[phase][chunk], num_cbms[phase][chunk], sizeof(cbm_t), cbm_dirt_cmp);
+}
+
+
+dump_cbm_dirts(int phase, int chunk)
+{
+    int		i;
+    cbm_t	*cbms = phase_cbms[phase][chunk];
+
+    printf("phase_cbm[%d][%d] in #dirts order\n", phase, chunk);
+    for (i = 0; i < num_cbms[phase][chunk]; i++) {
+	printf("    CBM[%d]: %d\n", cbms[i].id, cbms[i].ndirts);
+    }
+}
+
+
+void scan_matrix_blocks(int phase, int chunk, int ph1, int ch1, int ph2, int ch2)
+{
+    int		    i, n = matrix_table_sizes[phase][chunk][0];
+    matrix_block_t  *table = matrix_block_tables[phase][chunk][0];
+    
+
+    for (i = 0; i < n; i++) {
+	scan_block_dirts(&table[i], ph1, ch1, ph2, ch2);
+    }
+
+    sort_cbms_by_dirts(ph1, ch1);
+    dump_cbm_dirts(ph1, ch1);
+    sort_cbms_by_dirts(ph2, ch2);
+    dump_cbm_dirts(ph2, ch2);
+}
+
+
+// shuffle cbms in <ph1, ch1> and <ph2 ,ch2> to make cbms with more dirt contributions clustered
+// in the end of each cbm set, s.t. less crossproducted blocks are classified as matrix block
+void cbm_shuffle(int phase, int chunk, int ph1, int ch1, int ph2, int ch2)
+{
+    scan_matrix_blocks(phase, chunk, ph1, ch1, ph2, ch2);
+}
+
+
+int get_point_block_cbm(point_block_t *table, int block_id, int row, int col)
+{
+    int		    dirt_col, dirt_id, cbm_id;
+
+    dirt_col = table[block_id].dirt_code[row].loc;
+    dirt_id = table[block_id].dirt_code[row].id;
+    if (dirt_id == 0xF || dirt_col != col) {
+	cbm_id = prime_cbm;
+    } else {
+	cbm_id = table[block_id].dirts[dirt_id];
+    }
+
+    return cbm_id;
+}
+
+
+int get_row_block_cbm(array_block_t *table, int block_id, int row, int col)
+{
+    int		    dirt_col, dirt_id, cbm_id;
+
+    dirt_col = table[block_id].dirt_code[row].loc;
+    dirt_id = table[block_id].dirt_code[row].id;
+    if (dirt_id == 0xF || dirt_col != col) {
+	cbm_id = prime_cbms[row];
+    } else {
+	cbm_id = table[block_id].dirts[dirt_id];
+    }
+
+    return cbm_id;
+}
+
+
+int get_col_block_cbm(array_block_t *table, int block_id, int row, int col)
+{
+    int		    dirt_col, dirt_id, cbm_id;
+
+    dirt_row = table[block_id].dirt_code[col].loc;
+    dirt_id = table[block_id].dirt_code[col].id;
+    if (dirt_id == 0xF || dirt_row != row) {
+	cbm_id = prime_cbms[col];
+    } else {
+	cbm_id = table[block_id].dirts[dirt_id];
+    }
+
+    return cbm_id;
+}
+
+
+int get_matrix_block_cbm(array_block_t *table, int block_id, int row, int col)
+{
+    return table[block_id].cbms[row][col];
+}
+
+
+int crossprod_block_pass2(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int b1, int b2)
+{
+    int		row_start, row_size, col_start, col_size, i, j, rulesum, cbm_id; 
+    int		n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2];
+    uint16_t	rules[MAXRULES], nrules;
+    cbm_t	*cbms1, *cbms2;
+    int		block[BLOCKSIZE][BLOCKSIZE];
+    int		cbm1, cbm2, b1_pass1, b2_pass1, row_pass1, col_pass1, block_id_pass1, block_type, block_type_id;
+
+    cbms1 = phase_cbms[ph1][ch1];
+    cbms2 = phase_cbms[ph2][ch2];
+
+    row_start = b1 * BLOCKSIZE;
+    col_start = b2 * BLOCKSIZE;
+    if (n1 - row_start < BLOCKSIZE)
+	row_size = n1 - b1*BLOCKSIZE;
+    else
+	row_size = BLOCKSIZE;
+    if (n2 - col_start < BLOCKSIZE)
+	col_size = n2 - b2*BLOCKSIZE;
+    else
+	col_size = BLOCKSIZE;
+
+    //printf("**b%dxb%d**\n", b1, b2);
+    for (i = 0; i < row_size; i++) {
+	cbm1 = cbms1[row_start + i].id;
+	b1_pass1 = cbm1 / BLOCKSIZE;
+	row_pass1 = cbm1 % BLOCKSIZE;
+	for (j = 0; j < col_size; j++) {
+	    cbm2 = cbms2[col_start + j].id;
+	    b2_pass1 = cbm2 / BLOCKSIZE;
+	    col_pass1 = cbm2 % BLOCKSIZE;
+	    block_id_pass1 = b1_pass1 * b2_pass1;
+	    block_type = block_id_tables[phase][chunk][0][block_id_pass1].type;
+	    block_type_id = block_id_tables[phase][chunk][0][block_id_pass1].id;
+
+	    switch (block_type) {
+	    case POINT_BLOCK:
+		cbm_id = get_point_block_cbm(point_block_tables, block_type_id, row_pass1, col_pass1);
+		break;
+	    case ROW_BLOCK:
+		cbm_id = get_row_block_cbm(row_block_tables, block_type_id, row_pass1, col_pass1);
+		break;
+	    case COL_BLOCK:
+		cbm_id = get_col_block_cbm(col_block_tables, block_type_id, row_pass1, col_pass1);
+		break;
+	    default:
+		cbm_id = get_col_block_cbm(matrix_block_tables, block_type_id, row_pass1, col_pass1);
+		break;
+	    }
+
+	    block[i][j] = cbm_id;
+	}
+    }
+
+    add_block(phase, chunk, b1, b2, block, row_size, col_size);
 }
 
 
@@ -1251,9 +1482,15 @@ int crossprod_chunks(int phase, int chunk)
     if (n2 % BLOCKSIZE != 0) nb2++;
 
     for (i = 0; i < nb1; i++) {
-	for (j = 0; j < nb2; j++) {
-	    crossprod_block(phase, chunk, ph1, ch1, ph2, ch2, i, j, n1, n2);
-	}
+	for (j = 0; j < nb2; j++)
+	    crossprod_block(phase, chunk, ph1, ch1, ph2, ch2, i, j);
+    }
+
+    cbm_shuffle(phase, chunk, ph1, ch1, ph2, ch2);
+
+    for (i = 0; i < nb1; i++) {
+	for (j = 0; j < nb2; j++)
+	    crossprod_block_pass2(phase, chunk, ph1, ch1, ph2, ch2, i, j);
     }
 
     free_cbm_hash();
