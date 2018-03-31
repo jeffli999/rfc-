@@ -24,7 +24,7 @@ enum BLOCK_TYPE {POINT_BLOCK, ROW_BLOCK, COL_BLOCK, MATRIX_BLOCK};
 typedef struct cbm_entry {
     int		id;
     int		rulesum;
-    int		ndirts;	    // total block dirts involved in crossproducted matrix blocks
+    int		run;	    // #runs produced from crossproducting with another CBM set
     uint16_t	nrules;
     uint16_t	*rules;
 } cbm_t;
