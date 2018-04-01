@@ -1969,6 +1969,8 @@ int new_matrix_block(int phase, int chunk, int b1, int b2, int block[][BLOCKSIZE
 
     matrix_table_sizes[phase][chunk]++;
     matrix_block_tables[phase][chunk] = table;
+    
+printf("block[%d] = (%d x %d)\n", n, b1, b2);
 }
 
 
@@ -2284,6 +2286,28 @@ int p2_crossprod()
 }
 
 
+void dump_cbm_runs(int phase, int chunk)
+{
+    int	    i;
+
+    printf("CBM[%d][%d] runs: \n", phase, chunk);
+    for (i = 0; i < num_cbms[phase][chunk]; i++) {
+	printf("cbm[%d]: %d runs\n", i, phase_cbms[phase][chunk][i].run);
+    }
+}
+
+
+void dump_table_column(int phase, int chunk, int n1, int n2, int col)
+{
+    int		i, n = n1 * n2;
+
+    printf("Col Table[][%d]: \n", col);
+    for (i = col; i < n; i += n2)
+	printf("%7d: %6d\n", i/n2, phase_tables[phase][chunk][i]);
+	//printf("cbm[%d][%d]: \t%d\n", i, col, phase_tables[phase][chunk][i]);
+}
+
+
 // do crossproducting for two pairs of chunks for the last phase
 int p3_crossprod()
 {
@@ -2302,12 +2326,24 @@ int p3_crossprod()
     crossprod_2chunk(3, 0, cbms1, n1, cbms2, n2);
     printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, num_cbms[3][0], table_size);
 
+    /*
     for (i = 0; i < num_cbms[2][0]; i++)
 	phase_cbms[2][0][i].run >>= 2;
     for (i = 0; i < num_cbms[2][1]; i++)
 	phase_cbms[2][1][i].run >>= 8;
+    */
+
+    dump_table_column(3, 0, n1, n2, 0);
+    dump_table_column(3, 0, n1, n2, 1);
+    dump_cbm_runs(2, 0);
+    dump_cbm_runs(2, 1);
+
     sort_cbms_by_run(2, 0);
     sort_cbms_by_run(2, 1);
+printf("After sorting...\n");
+    dump_cbm_runs(2, 0);
+    dump_cbm_runs(2, 1);
+
     construct_block_tables(3, 0);
 
     matrix_block_t  *table = matrix_block_tables[3][0];
