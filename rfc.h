@@ -5,7 +5,7 @@
 #define MAXCHUNKS	7
 #define PHASES		4
 
-#define BLOCKSIZE	8	// ALERT: BLOCKSIZE <= 16 (4, 8, or 16)
+#define BLOCKSIZE	16	// ALERT: BLOCKSIZE <= 16 (4, 8, or 16)
 
 typedef struct range {
     unsigned low;
@@ -19,12 +19,16 @@ typedef struct pc_rule {
 
 
 //enum LOCAL_TYPE {NOT_LOCAL, ROW_LOCAL, COL_LOCAL, POINT_LOCAL};
-enum BLOCK_TYPE {POINT_BLOCK, ROW_BLOCK, COL_BLOCK, MATRIX_BLOCK};
+enum BLOCK_TYPE {ROW_BLOCK, COL_BLOCK, MATRIX4_BLOCK, MATRIX16_BLOCK, MATRIX32_BLOCK, MATRIX_BLOCK};
 
 typedef struct cbm_entry {
     int		id;
     int		rulesum;
     int		run;	    // #runs produced from crossproducting with another CBM set
+    int		scan_chunk;   
+    int		scan_cbm;
+    int		scan_count; // how many instances of this CBM when scan a crossproducting chunk
+    int		density;    // an indicator for how often it results in high-count crossproducted CBMs
     uint16_t	nrules;
     uint16_t	*rules;
 } cbm_t;
@@ -44,29 +48,55 @@ typedef struct {
 
 
 typedef struct {
-    uint32_t	type : 2;   // block type
-    uint32_t	id :  30;   // index of this block in the table of this type
+    uint32_t	type : 3;   // block type
+    uint32_t	id :  29;   // index of this block in the table of this type
 } block_entry_t;
 
 
+#define ARRAY_BLOCK_SIZE    (BLOCKSIZE*8 + (BLOCKSIZE*BLOCKSIZE >> 3))
 typedef struct {
-    int		prime_cbm;  // a point block has a unique prime CBM in this block
-    int		*dirts;	    // actual dirt CBMs (at most 15 different CBMs allowed)
-    int		num_dirts;  // only needed for statsitis purposes, can be removed in production system
-    dirt_code_t	dirt_code[BLOCKSIZE];	// to get the dirt locations and dirt id in the block dirts
-} point_block_t;
+    uint8_t	map[BLOCKSIZE*BLOCKSIZE >> 3];
+    int		cbms[BLOCKSIZE << 1];
+    int		row_size, col_size;
+} array_block_t;
 
 
+/*
 typedef struct {
     int		prime_cbms[BLOCKSIZE];
     int		*dirts;	    // actual dirt CBMs (at most 15 different CBMs allowed)
     int		num_dirts;  // only needed for statsitis purposes, can be removed in production system
     dirt_code_t	dirt_code[BLOCKSIZE];	// to get the dirt locations and dirt id in the block dirts
 } array_block_t;
+*/
 
 
+#define MATRIX4_BLOCK_SIZE    (16 + (BLOCKSIZE*BLOCKSIZE >> 2))
+typedef struct {
+    uint8_t	map[BLOCKSIZE*BLOCKSIZE >> 2];
+    int		cbms[4];
+    int		row_size, col_size;
+} matrix4_block_t;
+
+
+#define MATRIX16_BLOCK_SIZE    (64 + (BLOCKSIZE*BLOCKSIZE >> 1))
+typedef struct {
+    uint8_t	map[BLOCKSIZE*BLOCKSIZE >> 1];
+    int		cbms[16];
+    int		row_size, col_size;
+} matrix16_block_t;
+
+
+#define MATRIX32_BLOCK_SIZE    (128 + (BLOCKSIZE*BLOCKSIZE))
+typedef struct {
+    uint8_t	map[BLOCKSIZE*BLOCKSIZE];
+    int		cbms[32];
+    int		row_size, col_size;
+} matrix32_block_t;
+
+
+#define MATRIX_BLOCK_SIZE    (BLOCKSIZE*BLOCKSIZE*4)
 typedef struct {
     int		cbms[BLOCKSIZE][BLOCKSIZE];
-    int		row_block, col_block;
     int		row_size, col_size;
 } matrix_block_t;
