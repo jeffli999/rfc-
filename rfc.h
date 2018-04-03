@@ -19,7 +19,7 @@ typedef struct pc_rule {
 
 
 //enum LOCAL_TYPE {NOT_LOCAL, ROW_LOCAL, COL_LOCAL, POINT_LOCAL};
-enum BLOCK_TYPE {ROW_BLOCK, COL_BLOCK, MATRIX4_BLOCK, MATRIX16_BLOCK, MATRIX32_BLOCK, MATRIX_BLOCK};
+enum BLOCK_TYPE {ROW_BLOCK, COL_BLOCK, MATRIX16_BLOCK, MATRIX32_BLOCK, MATRIX48_BLOCK, MATRIX_BLOCK};
 
 typedef struct cbm_entry {
     int		id;
@@ -29,6 +29,7 @@ typedef struct cbm_entry {
     int		scan_cbm;
     int		scan_count; // how many instances of this CBM when scan a crossproducting chunk
     int		density;    // an indicator for how often it results in high-count crossproducted CBMs
+    uint64_t	order;
     uint16_t	nrules;
     uint16_t	*rules;
 } cbm_t;
@@ -39,6 +40,12 @@ typedef struct cbm_stat {
     int gminor, lminor;
     int	count;
 } cbm_stat_t;
+
+
+typedef struct {
+    int		id;
+    uint32_t	count;
+} id_count_t;
 
 
 typedef struct {
@@ -71,14 +78,6 @@ typedef struct {
 */
 
 
-#define MATRIX4_BLOCK_SIZE    (16 + (BLOCKSIZE*BLOCKSIZE >> 2))
-typedef struct {
-    uint8_t	map[BLOCKSIZE*BLOCKSIZE >> 2];
-    int		cbms[4];
-    int		row_size, col_size;
-} matrix4_block_t;
-
-
 #define MATRIX16_BLOCK_SIZE    (64 + (BLOCKSIZE*BLOCKSIZE >> 1))
 typedef struct {
     uint8_t	map[BLOCKSIZE*BLOCKSIZE >> 1];
@@ -93,6 +92,14 @@ typedef struct {
     int		cbms[32];
     int		row_size, col_size;
 } matrix32_block_t;
+
+
+#define MATRIX48_BLOCK_SIZE    (192 + (BLOCKSIZE*BLOCKSIZE))
+typedef struct {
+    uint8_t	map[BLOCKSIZE*BLOCKSIZE];
+    int		cbms[48];
+    int		row_size, col_size;
+} matrix48_block_t;
 
 
 #define MATRIX_BLOCK_SIZE    (BLOCKSIZE*BLOCKSIZE*4)
