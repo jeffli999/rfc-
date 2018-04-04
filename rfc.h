@@ -24,12 +24,9 @@ enum BLOCK_TYPE {ROW_BLOCK, COL_BLOCK, MATRIX16_BLOCK, MATRIX32_BLOCK, MATRIX48_
 typedef struct cbm_entry {
     int		id;
     int		rulesum;
-    int		run;	    // #runs produced from crossproducting with another CBM set
-    int		scan_chunk;   
-    int		scan_cbm;
-    int		scan_count; // how many instances of this CBM when scan a crossproducting chunk
-    int		density;    // an indicator for how often it results in high-count crossproducted CBMs
-    uint64_t	order;
+    uint64_t	major_code;	// code for 64 most popular CBMs in the phase table
+    uint64_t	shuffle_order;	// code for CBM order shuffling in the CBM set
+    int		run;		// #runs produced from crossproducting with another CBM set
     uint16_t	nrules;
     uint16_t	*rules;
 } cbm_t;

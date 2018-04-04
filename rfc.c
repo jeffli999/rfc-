@@ -393,12 +393,9 @@ int new_cbm(int phase, int chunk, uint16_t *rules, uint16_t nrules, int rulesum)
     cbm_id = num_cbms[phase][chunk];
     cbms[cbm_id].id = cbm_id;
     cbms[cbm_id].rulesum = rulesum;
+    cbms[cbm_id].major_code = 0;
+    cbms[cbm_id].shuffle_order = 0;
     cbms[cbm_id].run = 0;
-    cbms[cbm_id].scan_chunk = 0;
-    cbms[cbm_id].scan_cbm = -1;
-    cbms[cbm_id].scan_count = 0;
-    cbms[cbm_id].density = 0;
-    cbms[cbm_id].order = 0;
     cbms[cbm_id].nrules = nrules;
     cbms[cbm_id].rules = (uint16_t *) malloc(nrules*sizeof(uint16_t));
     memcpy(cbms[cbm_id].rules, rules, nrules*sizeof(uint16_t));
@@ -1401,11 +1398,11 @@ int construct_block_tables(int phase, int chunk)
 }
 
 
-static int cbm_density_cmp(const void *p, const void *q)
+static int id_count_cmp(const void *p, const void *q)
 {
-    if (((cbm_t *)q)->density > ((cbm_t *)p)->density)
+    if (((id_count_t *)q)->count > ((id_count_t *)p)->count)
 	return 1;
-    else if (((cbm_t *)q)->density < ((cbm_t *)p)->density)                                                   
+    else if (((id_count_t *)q)->count < ((id_count_t *)p)->count)
 	return -1;                                                     
     else
 	return 0;                                                                                   
@@ -1414,112 +1411,16 @@ static int cbm_density_cmp(const void *p, const void *q)
 
 static int cbm_order_cmp(const void *p, const void *q)
 {
-    if (((cbm_t *)q)->order > ((cbm_t *)p)->order)
+    if (((cbm_t *)q)->shuffle_order > ((cbm_t *)p)->shuffle_order)
 	return 1;
-    else if (((cbm_t *)q)->order < ((cbm_t *)p)->order)                                                   
+    else if (((cbm_t *)q)->shuffle_order < ((cbm_t *)p)->shuffle_order)
 	return -1;                                                     
     else
 	return 0;                                                                                   
 }
 
 
-void scan_cbm2(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int cbm1_id)
-{
-    int		i, cbm_id, count, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2];
-    cbm_t	*cbms = phase_cbms[phase][chunk];
-    int		*table = phase_tables[phase][chunk];
-
-    for (i = 0; i < n2; i++) {
-	cbm_id = table[cbm1_id*n2 + i];
-	if (cbms[cbm_id].scan_chunk == 1 && cbms[cbm_id].scan_cbm == cbm1_id)
-	    cbms[cbm_id].scan_count++;
-	else {
-	    cbms[cbm_id].scan_chunk = 1;
-	    cbms[cbm_id].scan_cbm = cbm1_id;
-	    cbms[cbm_id].scan_count = 1;
-	}
-    }
-
-    for (i = 0; i < n2; i++) {
-	cbm_id = table[cbm1_id*n2 + i];
-	count = cbms[cbm_id].scan_count;
-	phase_cbms[ph2][ch2][i].density += count;
-    }
-}
-
-
-void scan_cbm1(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int cbm2_id)
-{
-    int		i, base, cbm_id, count, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2];
-    cbm_t	*cbms = phase_cbms[phase][chunk];
-    int		*table = phase_tables[phase][chunk];
-
-    for (i = 0; i < n1; i++) {
-	cbm_id = table[i*n2 + cbm2_id];
-	if (cbms[cbm_id].scan_chunk == 2 && cbms[cbm_id].scan_cbm == cbm2_id)
-	    cbms[cbm_id].scan_count++;
-	else {
-	    cbms[cbm_id].scan_chunk = 2;
-	    cbms[cbm_id].scan_cbm = cbm2_id;
-	    cbms[cbm_id].scan_count = 1;
-	}
-    }
-
-    for (i = 0; i < n1; i++) {
-	cbm_id = table[i*n2 + cbm2_id];
-	count = cbms[cbm_id].scan_count;
-	phase_cbms[ph1][ch1][i].density += count;
-    }
-}
-
-
-static int id_count_cmp(const void *p, const void *q)
-{
-    if (((id_count_t *)p)->count > ((id_count_t *)q)->count)
-	return 1;
-    else if (((id_count_t *)p)->count < ((id_count_t *)q)->count)
-	return -1;                                                     
-    else
-	return 0;                                                                                   
-}
-
-
-void scan_test(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int cbm2_id)
-{
-    int	    i, n = num_cbms[ph1][ch1], cbm_id;
-    id_count_t	*cbm_counts;
-    uint64_t	order;
-
-    cbm_counts = calloc(num_cbms[phase][chunk], sizeof(id_count_t));
-
-    for (i = 0; i < num_cbms[ph1][ch1]; i++) {
-	cbm_id = phase_tables[phase][chunk][i*num_cbms[ph2][ch2] + cbm2_id];
-	cbm_counts[cbm_id].id = cbm_id;
-	cbm_counts[cbm_id].count++;
-    }
-    qsort(cbm_counts, num_cbms[phase][chunk], sizeof(id_count_t), id_count_cmp);
-
-    order = 100000;
-    for (i = num_cbms[phase][chunk]-1; i >= 0; i--) {
-	if (cbm_counts[i].count == 0)
-	    break;
-	cbm_id = cbm_counts[i].id;
-	phase_cbms[phase][chunk][cbm_id].order = order--;
-    }
-
-    for (i = 0; i < n; i++) {
-	cbm_id = phase_tables[phase][chunk][i*num_cbms[ph2][ch2] + cbm2_id];
-	order = phase_cbms[phase][chunk][cbm_id].order;
-	phase_cbms[ph1][ch1][i].order = order;
-    }
-
-    qsort(phase_cbms[ph1][ch1], num_cbms[ph1][ch1], sizeof(cbm_t), cbm_order_cmp);
-
-    free(cbm_counts);
-}
-
-
-void scan_crossprod_cbm(int phase, int chunk)
+void get_cbm_majors(int phase, int chunk)
 {
     int	    i, n = num_cbms[phase][chunk], cbm_id;
     id_count_t	*cbm_counts;
@@ -1533,18 +1434,110 @@ void scan_crossprod_cbm(int phase, int chunk)
 	cbm_counts[cbm_id].count++;
     }
 
-    qsort(cbm_counts, n, sizeof(int), id_count_cmp);
+    qsort(cbm_counts, n, sizeof(id_count_t), id_count_cmp);
     for (i = 0; i < n; i++)
 	printf("cbm_count[%d]: %d\n", cbm_counts[i].id, cbm_counts[i].count);
 
-    order = 0x1;
-    for (i = n-1; i < n; i++) {
+    if (n > 64) n = 64;
+    for (i = 0; i < n; i++) {
 	cbm_id = cbm_counts[i].id;
-	phase_cbms[phase][chunk][cbm_id].order = order;
-	order <<= 1;
+	phase_cbms[phase][chunk][cbm_id].major_code = 1 << (63 - i);
     }
 
     free(cbm_counts);
+}
+
+
+int shuffle_rows(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int col)
+{
+    id_count_t	*cbm_counts;
+    int		n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2], n = num_cbms[phase][chunk];
+    int		i, k, num_major, cbm_id, cbm2_id = phase_cbms[ph2][ch2][col].id; 
+    cbm_t	*cbms = phase_cbms[phase][chunk];
+    cbm_t	*cbms1 = phase_cbms[ph1][ch1];
+    int		*table = phase_tables[phase][chunk], nshuffled = 0;
+
+    cbm_counts = calloc(n, sizeof(id_count_t));
+
+    for (i = 0; i < n1; i++) {
+	cbm_id = table[i*n2 + cbm2_id];
+	cbm_counts[cbm_id].id = cbm_id;
+	cbm_counts[cbm_id].count++;
+    }
+    qsort(cbm_counts, n, sizeof(id_count_t), id_count_cmp);
+    for (num_major = 0; num_major < n; num_major++) {
+	if (cbm_counts[num_major].count < (n1 >> 4))
+	    break;
+    }
+    for (i = 0; i < n1; i++) {
+	cbm_id = table[i*n2 + cbm2_id];
+	for (k = 0; k < num_major; k++) {
+	    if (cbm_counts[k].id == cbm_id) {
+		if (cbms1[i].shuffle_order == 0 && cbms[cbm_id].major_code != 0)
+		    nshuffled++;
+		cbms1[i].shuffle_order |= cbms[cbm_id].major_code;
+	    }
+	}
+    }
+
+    free(cbm_counts);
+    return nshuffled;
+}
+
+
+int shuffle_cols(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int row)
+{
+    id_count_t	*cbm_counts;
+    int		n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2], n = num_cbms[phase][chunk];
+    int		i, k, num_major, cbm_id, cbm1_id = phase_cbms[ph1][ch1][row].id; 
+    cbm_t	*cbms = phase_cbms[phase][chunk];
+    cbm_t	*cbms2 = phase_cbms[ph2][ch2];
+    int		*table = phase_tables[phase][chunk], nshuffled = 0;
+
+    cbm_counts = calloc(n, sizeof(id_count_t));
+
+    for (i = 0; i < n2; i++) {
+	cbm_id = table[cbm1_id*n2 + i];
+	cbm_counts[cbm_id].id = cbm_id;
+	cbm_counts[cbm_id].count++;
+    }
+    qsort(cbm_counts, n, sizeof(id_count_t), id_count_cmp);
+    for (num_major = 0; num_major < n; num_major++) {
+	if (cbm_counts[num_major].count < (n2 >> 4))
+	    break;
+    }
+    for (i = 0; i < n2; i++) {
+	cbm_id = table[cbm1_id*n2 + i];
+	for (k = 0; k < num_major; k++) {
+	    if (cbm_counts[k].id == cbm_id) {
+		if (cbms2[i].shuffle_order == 0 && cbms[cbm_id].major_code != 0)
+		    nshuffled++;
+		cbms2[i].shuffle_order |= cbms[cbm_id].major_code;
+	    }
+	}
+    }
+
+    free(cbm_counts);
+    return nshuffled;
+}
+
+
+void shuffle_cbms(int phase, int chunk, int ph1, int ch1, int ph2, int ch2)
+{
+    int		i, j, base, cbm_id, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2], nshuffled;
+    uint64_t	order;
+
+    get_cbm_majors(phase, chunk);
+
+    nshuffled = 0;
+    for (i = 0; i < n2; i++)
+	nshuffled += shuffle_rows(phase, chunk, ph1, ch1, ph2, ch2, i);
+    qsort(phase_cbms[ph1][ch1], num_cbms[ph1][ch1], sizeof(cbm_t), cbm_order_cmp);
+
+    nshuffled = 0;
+    for (i = 0; i < n1; i++)
+	nshuffled += shuffle_cols(phase, chunk, ph1, ch1, ph2, ch2, i);
+    qsort(phase_cbms[ph2][ch2], num_cbms[ph2][ch2], sizeof(cbm_t), cbm_order_cmp);
 }
 
 
@@ -1585,42 +1578,6 @@ void update_cbm_runs(int phase, int chunk, int ph1, int ch1, int ph2, int ch2)
 }
 
 
-void sort_cbms_by_order(int phase, int chunk, int ph1, int ch1, int ph2, int ch2)
-{
-    int		i, j, base, cbm_id, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2];
-    uint64_t	order;
-
-    scan_crossprod_cbm(phase, chunk);
-    for (i = 0; i < n1; i++) {
-	base = i * n2;
-	for (j = 0; j < n2; j++) {
-	    cbm_id = phase_tables[phase][chunk][base+j];
-	    order = phase_cbms[phase][chunk][cbm_id].order;
-	    phase_cbms[ph1][ch1][i].order |= order;
-	    phase_cbms[ph2][ch2][j].order |= order;
-	}
-    }
-
-    qsort(phase_cbms[ph1][ch1], num_cbms[ph1][ch1], sizeof(cbm_t), cbm_order_cmp);
-    qsort(phase_cbms[ph2][ch2], num_cbms[ph2][ch2], sizeof(cbm_t), cbm_order_cmp);
-}
-
-
-void sort_cbms_by_density(int phase, int chunk, int ph1, int ch1, int ph2, int ch2)
-{
-    int		i, j, base, cbm_id, count, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2];
-
-    for (i = 0; i < n1; i++)
-	scan_cbm2(phase, chunk, ph1, ch1, ph2, ch2, i);
-
-    for (i = 0; i < n2; i++)
-	scan_cbm1(phase, chunk, ph1, ch1, ph2, ch2, i);
-
-    qsort(phase_cbms[ph1][ch1], num_cbms[ph1][ch1], sizeof(cbm_t), cbm_density_cmp);
-    qsort(phase_cbms[ph2][ch2], num_cbms[ph2][ch2], sizeof(cbm_t), cbm_density_cmp);
-}
-
-
 // do phase 1 crossproducting for three pairs of chunks in phase 0,
 // Alert 1: the protocol chunk is left for crossproducting in next phase
 // Alert 2: be careful of the order of crosspoducting for each pair of chunks (as commented in below code)
@@ -1643,8 +1600,8 @@ int p1_crossprod()
 
     total_table_size += phase_table_sizes[1][0];
 
-    sort_cbms_by_density(1, 0, 0, 1, 0, 0);
-    //sort_cbms_by_density(1, 0, 0, 1, 0, 0);
+    shuffle_cbms(1, 0, 0, 1, 0, 0);
+    //shuffle_cbms(1, 0, 0, 1, 0, 0);
     total_block_table_size += construct_block_tables(1, 0);
 
     // DIP[31:16] x DIP[15:0]
@@ -1660,7 +1617,7 @@ int p1_crossprod()
 
     total_table_size += phase_table_sizes[1][1];
 
-    sort_cbms_by_density(1, 1, 0, 3, 0, 2);
+    shuffle_cbms(1, 1, 0, 3, 0, 2);
     total_block_table_size += construct_block_tables(1, 1);
 
     // DP x SP
@@ -1676,7 +1633,7 @@ int p1_crossprod()
 
     total_table_size += phase_table_sizes[1][2];
 
-    sort_cbms_by_density(1, 2, 0, 6, 0, 5);
+    shuffle_cbms(1, 2, 0, 6, 0, 5);
     total_block_table_size += construct_block_tables(1, 2);
 
     //dump_intersect_stats();
@@ -1706,7 +1663,7 @@ int p2_crossprod()
 
     total_table_size += phase_table_sizes[2][0];
 
-    sort_cbms_by_density(2, 0, 1, 0, 1, 1);
+    shuffle_cbms(2, 0, 1, 0, 1, 1);
     total_block_table_size += construct_block_tables(2, 0);
 
     // PROTO x (DP x SP)
@@ -1724,7 +1681,7 @@ int p2_crossprod()
 
     total_table_size += phase_table_sizes[2][1];
 
-    sort_cbms_by_density(2, 1, 0, 4, 1, 2);
+    shuffle_cbms(2, 1, 0, 4, 1, 2);
     total_block_table_size += construct_block_tables(2, 1);
 
     //dump_intersect_stats();
@@ -1743,14 +1700,16 @@ void dump_cbm_runs(int phase, int chunk)
 }
 
 
-void dump_table_column(int phase, int chunk, int n1, int n2, int col)
+void dump_table_column(int phase, int chunk, int ph1, int ch1, int ph2, int ch2, int col)
 {
-    int		i, n = n1 * n2;
+    int		i, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2], cbm1, cbm2, cbm;
 
-    printf("Col Table[][%d]: \n", col);
-    for (i = col; i < n; i += n2)
-	printf("%7d: %6d\n", i/n2, phase_tables[phase][chunk][i]);
-	//printf("cbm[%d][%d]: \t%d\n", i, col, phase_tables[phase][chunk][i]);
+    cbm2 = phase_cbms[ph2][ch2][col].id;
+    printf("Col Table[][%d]: \n", cbm2);
+    for (i = 0; i < n1; i++) {
+	cbm1 = phase_cbms[ph1][ch1][i].id;
+	printf("%7d: %6d\n", i, phase_tables[phase][chunk][cbm1*n2 + cbm2]);
+    }
 }
 
 
@@ -1774,47 +1733,18 @@ int p3_crossprod()
 
     total_table_size += phase_table_sizes[3][0];
 
-    /*
-    for (i = 0; i < num_cbms[2][0]; i++)
-	phase_cbms[2][0][i].run >>= 2;
-    for (i = 0; i < num_cbms[2][1]; i++)
-	phase_cbms[2][1][i].run >>= 8;
+    shuffle_cbms(3, 0, 2, 0, 2, 1);
+    update_cbm_runs(3, 0, 2, 0, 2, 1);
+    total_block_table_size += construct_block_tables(3, 0);
+    printf("After sorting...\n");
+    dump_cbm_runs(2, 1);
 
     for (i = 0; i < n2; i++) {
 	printf("table column[%d]\n", i);
-	dump_table_column(3, 0, n1, n2, i);
+	dump_table_column(3, 0, 2, 0, 2, 1, i);
     }
-    dump_cbm_runs(2, 0);
-    dump_cbm_runs(2, 1);
-    sort_cbms_by_run(2, 0);
-    sort_cbms_by_run(2, 1);
-    printf("After sorting...\n");
-    dump_cbm_runs(2, 0);
-    dump_cbm_runs(2, 1);
-    */
-
-    dump_cbm_runs(2, 0);
-    dump_cbm_runs(2, 1);
-    
-    scan_test(3, 0, 2, 0, 2, 1, 0);
-    //sort_cbms_by_order(3, 0, 2, 0, 2, 1);
-    //sort_cbms_by_density(3, 0, 2, 0, 2, 1);
-    update_cbm_runs(3, 0, 2, 0, 2, 1);
-    sort_cbms_by_run(2, 1);
-    total_block_table_size += construct_block_tables(3, 0);
-    printf("After sorting...\n");
-    dump_cbm_runs(2, 0);
-    dump_cbm_runs(2, 1);
-
     /*
-    matrix_block_t  *table = matrix_block_tables[3][0];
-    for (i = 0; i < matrix_table_sizes[3][0]; i++) {
-	printf("matrix[%d]\n", i);
-	dump_matrix_block(3, 0, i);
-    }
     */
-
-    //dump_intersect_stats();
 }
 
 
