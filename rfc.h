@@ -24,8 +24,8 @@ enum BLOCK_TYPE {ROW_BLOCK, COL_BLOCK, MATRIX16_BLOCK, MATRIX32_BLOCK, MATRIX48_
 typedef struct cbm_entry {
     int		id;
     int		rulesum;
-    uint64_t	major_code;	// code for 64 most popular CBMs in the phase table
-    uint64_t	shuffle_order;	// code for CBM order shuffling in the CBM set
+    uint32_t	major_code;	// code for 64 most popular CBMs in the phase table
+    uint32_t	shuffle_order;	// code for CBM order shuffling in the CBM set
     int		run;		// #runs produced from crossproducting with another CBM set
     uint16_t	nrules;
     uint16_t	*rules;
