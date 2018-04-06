@@ -218,8 +218,19 @@ Step 0: When a new CBM is created, scan its rules to decide its local type (none
 
 2018-04-05
 ================================
-Blocking Shuffling steps:
-1.  scan a sub-table, and find the most populous CBM (pop_cbm) in it
+Partition Shuffling steps:
+0.  treat the whole table as a partition, and put it into a partition queue Q for subsequent processing
+1.  pick up the head partition in Q, scan it to find the most populous CBM (pop_cbm) inside
 2.  scan the sub-table again, get the counts of pop_cbm in each row and column, 
     and sort the rows/cols according to their counts.
 3.  decide the number of rows and cols for selection with criteria that non pop_cbms are below a threshold in the area
+4.  the sub-table is now devided into 4 partitions: 
+    - Top-Left (sorted with pop_cbm)
+    - Top-Right, Bottom-Left, Bottom-Right (to be sorted with their own most populous CBMs)
+    4.1 give the 3 unsorted partitions weights on their area (row_len x col_len), and put them into an alternative queue Q'
+    4.2 for the rest partitions in Q, check whether their area is cut though by either the vertical or horizontal lines
+        produced in this step. Without a cut, just put the original partition into Q'; otherwise, generate two sub-partitions
+	by the cut, and put them into Q' if their area is larger than a threshold (at leas one dim is greather than
+	BLOCKSIZE).
+    4.3 sort the partitions in Q' according to their weights on area
+5.  go to step 1.
