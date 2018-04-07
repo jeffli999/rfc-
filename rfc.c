@@ -395,8 +395,7 @@ int new_cbm(uint16_t *rules, uint16_t nrules, int rulesum)
     cbm_id = num_cbms[phase][chunk];
     cbms[cbm_id].id = cbm_id;
     cbms[cbm_id].rulesum = rulesum;
-    cbms[cbm_id].major_code = 0;
-    cbms[cbm_id].shuffle_order = 0;
+    cbms[cbm_id].order = 0;
     cbms[cbm_id].run = 0;
     cbms[cbm_id].nrules = nrules;
     cbms[cbm_id].rules = (uint16_t *) malloc(nrules*sizeof(uint16_t));
@@ -424,28 +423,64 @@ void del_cbm(cbm_t *cbm)
 //
 // -------------------------------------------------------------------------------------------------
 
-partition_t	*part_set[2];
-int		part_set_len[2];
-int		part_set_size[2];
-int		work_part;
-partition_t	*parts;
-int		parts_len;
-int		parts_size;
+partition_t	*partition_pools[2];
+int		pools_len[2];
+int		pools_size[2];
+int		workpool_id;
+partition_t	*workpool;
+int		workpool_len;
+int		workpool_size;
 
 
-void add_partition(partition_t *p)
+static int id_count_cmp(const void *p, const void *q)
 {
-    if (parts_len == parts_size) {
-	parts_size += parts_size >> 1;
-	parts = realloc(parts, parts_size * sizeof(partition_t));
-    }
-    parts[parts_len++] = *p;
+    if (((id_count_t *)q)->count > ((id_count_t *)p)->count)
+	return 1;
+    else if (((id_count_t *)q)->count < ((id_count_t *)p)->count)
+	return -1;                                                     
+    else
+	return 0;                                                                                   
 }
 
 
-partition_t* get_first_partition()
+static int cbm_order_cmp(const void *p, const void *q)
 {
-    return &parts[0];
+    if (((cbm_t *)q)->order > ((cbm_t *)p)->order)
+	return 1;
+    else if (((cbm_t *)q)->order < ((cbm_t *)p)->order)
+	return -1;                                                     
+    else
+	return 0;                                                                                   
+}
+
+
+int add_partition(int top, int bottom, int left, int right)
+{
+    // don't consider partitions smaller than a block
+    if ((bottom - top < BLOCKSIZE) && (right - left < BLOCKSIZE))
+	return 0;
+
+    if (workpool_len == workpool_size) {
+	workpool_size += workpool_size >> 1;
+	printf("workpoll[%d] size: %d\n", workpool_id, workpool_size);
+	workpool = realloc(workpool, workpool_size * sizeof(partition_t));
+    }
+    workpool[workpool_len].top = top;
+    workpool[workpool_len].bottom = bottom;
+    workpool[workpool_len].left = left;
+    workpool[workpool_len].right = right;
+    workpool[workpool_len].size = (bottom - top) * (right - left);
+    workpool[workpool_len].row_bound = bottom;
+    workpool[workpool_len].col_bound = right;
+    workpool_len++;
+
+    return 1;
+}
+
+
+partition_t* draw_partition()
+{
+    return &workpool[0];
 }
 
 
@@ -460,7 +495,7 @@ void get_pop_cbm(partition_t *p)
 	for (j = p->left; j < p->right; j++) {
 	    cbm2_id = phase_cbms[ph2][ch2][j].id;
 	    cbm_id = table[cbm1_id * num_cbms[ph2][ch2] + cbm2_id];
-	    counts[cbm_id]++;
+	    counts[cbm_id].count++;
 	}
     }
     qsort(counts, n, sizeof(id_count_t), id_count_cmp);
@@ -542,46 +577,79 @@ int trim_pop_partition(partition_t *p)
 }
 
 
-void run_partition()
+static int partition_size_cmp(const void *p, const void *q)
 {
-    partition_t	*p;
+    if (((partition_t *)q)->size > ((partition_t *)p)->size)
+	return 1;
+    else if (((partition_t *)q)->size < ((partition_t *)p)->size)
+	return -1;                                                     
+    else
+	return 0;                                                                                   
+}
 
-    p = get_first_partition();
-    if (p == NULL)
-	return;
 
-    get_pop_cbm(p);
-    do {
-	form_pop_partition(p);
-	trimed = trim_pop_partition(p);
-    } while (trimed);
+void update_partition_pool(partition_t *p)
+{
+    int		i, oldpool_id = workpool_id;
+    partition_t	*p1;
 
-    adjust_partitions();
-    run_partition();
+    // 0. switch the working partition set
+    partition_pools[workpool_id] = workpool;
+    workpool_id = !workpool_id;
+    workpool = partition_pools[workpool_id];
+    workpool_len = 0;
+    workpool_size = pools_size[workpool_id];
+
+    // 1. add the three non-pop CBM sub-partitions into the alternative partition set
+    add_partition(p->top, p->row_bound, p->col_bound, p->right);    // top-right sub partition
+    add_partition(p->row_bound, p->bottom, p->left, p->col_bound);  // bottom-left sub partition
+    add_partition(p->row_bound, p->bottom, p->col_bound, p->right); // bottom-left sub partition
+
+    // 2. for each partition in previous working set, add it or its two halves splitted by this
+    //    partitioning into the new working set
+    //    ALERT: the first partiion is p, which has been partitioned, so start with i = 1
+    for (i = 1; i < pools_len[oldpool_id]; i++) {
+	p1 = &partition_pools[oldpool_id][i];
+	if (p1->top < p->row_bound && p1->bottom > p->row_bound) {	    // horizontal splitted halves
+	    add_partition(p1->top, p->row_bound, p1->left, p1->right);
+	    add_partition(p->row_bound, p1->bottom, p1->left, p1->right);
+	} else if (p1->left < p->col_bound && p1->right > p->col_bound) {   // veritical splitted halves
+	    add_partition(p1->top, p1->bottom, p1->left, p->col_bound);
+	    add_partition(p1->top, p1->bottom, p1->col_bound, p1->right);
+	} else {    // not splitted, add itself to the workpool
+	    add_partition(p1->top, p1->bottom, p1->left, p1->right);
+	}
+    }
+
+    // 3. sort partitions in the work pool w.r.t. their sizes
+    qsort(workpool, workpool_len, sizeof(partition_t), partition_size_cmp);
 }
 
 
 void table_partition()
 {
-    partition_t	    p;
+    int		    trimed;
+    partition_t	    *p;
 
-    part_queue[0] = malloc(256 * sizeof(partition_t));
-    part_queue[1] = malloc(256 * sizeof(partition_t));
-    part_queue_size[0] = part_queue_size[1] = 256;
+    partition_pools[0] = malloc(256 * sizeof(partition_t));
+    partition_pools[1] = malloc(256 * sizeof(partition_t));
+    pools_size[0] = pools_size[1] = 256;
 
-    parts = part_queue[0];
-    parts_size = part_queue_size[0];
+    workpool = partition_pools[0];
+    workpool_size = pools_size[0];
 
-    p.top = 0;
-    p.bottom = num_cbms[ph1][ch1];
-    p.left = 0;
-    p.right = num_cbms[ph2][ch2];
-    p.weight = (p.bottom - p.top) * (p.right - p.left);
-    p.row_bound = p.bottom;
-    p.col_bound = p.right;
+    add_partition(0, num_cbms[ph1][ch1], 0, num_cbms[ph2][ch2]);
 
-    part_enqueue(&p);
-    run_partition();
+    p = draw_partition();
+    while (p != NULL) {
+	get_pop_cbm(p);
+	do {
+	    form_pop_partition(p);
+	    trimed = trim_pop_partition(p);
+	} while (trimed);
+	update_partition_pool(p);
+	p = draw_partition();
+    }
 }
 
 
@@ -1553,120 +1621,6 @@ int construct_block_tables()
 }
 
 
-static int id_count_cmp(const void *p, const void *q)
-{
-    if (((id_count_t *)q)->count > ((id_count_t *)p)->count)
-	return 1;
-    else if (((id_count_t *)q)->count < ((id_count_t *)p)->count)
-	return -1;                                                     
-    else
-	return 0;                                                                                   
-}
-
-
-static int cbm_order_cmp(const void *p, const void *q)
-{
-    if (((cbm_t *)q)->order > ((cbm_t *)p)->order)
-	return 1;
-    else if (((cbm_t *)q)->order < ((cbm_t *)p)->order)
-	return -1;                                                     
-    else
-	return 0;                                                                                   
-}
-
-
-int shuffle_rows(int col)
-{
-    id_count_t	*cbm_counts;
-    int		n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2], n = num_cbms[phase][chunk];
-    int		i, k, num_major, cbm_id, cbm2_id = phase_cbms[ph2][ch2][col].id; 
-    cbm_t	*cbms = phase_cbms[phase][chunk];
-    cbm_t	*cbms1 = phase_cbms[ph1][ch1];
-    int		*table = phase_tables[phase][chunk], nshuffled = 0;
-
-    cbm_counts = calloc(n, sizeof(id_count_t));
-
-    for (i = 0; i < n1; i++) {
-	cbm_id = table[i*n2 + cbm2_id];
-	cbm_counts[cbm_id].id = cbm_id;
-	cbm_counts[cbm_id].count++;
-    }
-    qsort(cbm_counts, n, sizeof(id_count_t), id_count_cmp);
-    for (num_major = 0; num_major < n; num_major++) {
-	if (cbm_counts[num_major].count < (n1 >> 4))
-	    break;
-    }
-    for (i = 0; i < n1; i++) {
-	cbm_id = table[i*n2 + cbm2_id];
-	for (k = 0; k < num_major; k++) {
-	    if (cbm_counts[k].id == cbm_id) {
-		if (cbms1[i].shuffle_order == 0 && cbms[cbm_id].major_code != 0)
-		    nshuffled++;
-		cbms1[i].shuffle_order |= cbms[cbm_id].major_code;
-	    }
-	}
-    }
-
-    free(cbm_counts);
-    return nshuffled;
-}
-
-
-int shuffle_cols(int row)
-{
-    id_count_t	*cbm_counts;
-    int		n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2], n = num_cbms[phase][chunk];
-    int		i, k, num_major, cbm_id, cbm1_id = phase_cbms[ph1][ch1][row].id; 
-    cbm_t	*cbms = phase_cbms[phase][chunk];
-    cbm_t	*cbms2 = phase_cbms[ph2][ch2];
-    int		*table = phase_tables[phase][chunk], nshuffled = 0;
-
-    cbm_counts = calloc(n, sizeof(id_count_t));
-
-    for (i = 0; i < n2; i++) {
-	cbm_id = table[cbm1_id*n2 + i];
-	cbm_counts[cbm_id].id = cbm_id;
-	cbm_counts[cbm_id].count++;
-    }
-    qsort(cbm_counts, n, sizeof(id_count_t), id_count_cmp);
-    for (num_major = 0; num_major < n; num_major++) {
-	if (cbm_counts[num_major].count < (n2 >> 4))
-	    break;
-    }
-    for (i = 0; i < n2; i++) {
-	cbm_id = table[cbm1_id*n2 + i];
-	for (k = 0; k < num_major; k++) {
-	    if (cbm_counts[k].id == cbm_id) {
-		if (cbms2[i].shuffle_order == 0 && cbms[cbm_id].major_code != 0)
-		    nshuffled++;
-		cbms2[i].shuffle_order |= cbms[cbm_id].major_code;
-	    }
-	}
-    }
-
-    free(cbm_counts);
-    return nshuffled;
-}
-
-
-void shuffle_cbms()
-{
-    int		i, j, base, cbm_id, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2], nshuffled;
-
-    get_cbm_majors();
-
-    nshuffled = 0;
-    for (i = 0; i < n2; i++)
-	nshuffled += shuffle_rows(i);
-    qsort(phase_cbms[ph1][ch1], num_cbms[ph1][ch1], sizeof(cbm_t), cbm_order_cmp);
-
-    nshuffled = 0;
-    for (i = 0; i < n1; i++)
-	nshuffled += shuffle_cols(i);
-    qsort(phase_cbms[ph2][ch2], num_cbms[ph2][ch2], sizeof(cbm_t), cbm_order_cmp);
-}
-
-
 void update_cbm_runs()
 {
     int		i, j, n1 = num_cbms[ph1][ch1], n2 = num_cbms[ph2][ch2];
@@ -1722,7 +1676,7 @@ int p1_crossprod()
     rest_fields[0] = 0;
     compact_cbm_set(rest_fields);
     total_table_size += phase_table_sizes[phase][chunk];
-    shuffle_cbms();
+    table_partition();
     total_block_table_size += construct_block_tables();
 
     // DIP[31:16] x DIP[15:0]
@@ -1734,7 +1688,7 @@ int p1_crossprod()
     rest_fields[1] = 0;
     compact_cbm_set(rest_fields);
     total_table_size += phase_table_sizes[phase][chunk];
-    shuffle_cbms();
+    table_partition();
     total_block_table_size += construct_block_tables();
 
     // DP x SP
@@ -1743,7 +1697,7 @@ int p1_crossprod()
     ch2 = 5;
     crossprod_2chunk();
     total_table_size += phase_table_sizes[phase][chunk];
-    shuffle_cbms();
+    table_partition();
     total_block_table_size += construct_block_tables();
 
     //dump_intersect_stats();
@@ -1768,7 +1722,7 @@ int p2_crossprod()
     crossprod_2chunk();
     compact_cbm_set(rest_fields);
     total_table_size += phase_table_sizes[phase][chunk];
-    shuffle_cbms();
+    table_partition();
     total_block_table_size += construct_block_tables();
 
     // PROTO x (DP x SP)
@@ -1781,7 +1735,7 @@ int p2_crossprod()
     rest_fields[2] = rest_fields[3] = rest_fields[4] = 0;
     crossprod_2chunk();
     total_table_size += phase_table_sizes[phase][chunk];
-    shuffle_cbms();
+    table_partition();
     total_block_table_size += construct_block_tables();
 
     //dump_intersect_stats();
@@ -1860,7 +1814,7 @@ int p3_crossprod()
     crossprod_2chunk();
     total_table_size += phase_table_sizes[phase][chunk];
     //dump_table();
-    shuffle_cbms();
+    table_partition();
     update_cbm_runs();
     total_block_table_size += construct_block_tables();
     printf("After sorting...\n");
