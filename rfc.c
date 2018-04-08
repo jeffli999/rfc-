@@ -454,55 +454,83 @@ static int cbm_order_cmp(const void *p, const void *q)
 }
 
 
-int add_partition(int top, int bottom, int left, int right)
+// return the count of the most populous CBM (the id of this CBM is recorded in the partition data stucture)
+int get_pop_cbm(partition_t *p)
 {
+    int		i, j, n = num_cbms[phase][chunk], cbm1_id, cbm2_id, cbm_id;
+    int		*table = phase_tables[phase][chunk];
+    id_count_t	*counts = calloc(n, sizeof(id_count_t));
+
+    p->pop_count = 0;
+    for (i = p->top; i < p->bottom; i++) {
+	cbm1_id = phase_cbms[ph1][ch1][i].id;
+	for (j = p->left; j < p->right; j++) {
+	    cbm2_id = phase_cbms[ph2][ch2][j].id;
+	    cbm_id = table[cbm1_id * num_cbms[ph2][ch2] + cbm2_id];
+	    counts[cbm_id].id = cbm_id;
+	    counts[cbm_id].count++;
+	    if (counts[cbm_id].count > p->pop_count) {
+		p->pop_cbm = cbm_id;
+		p->pop_count = counts[cbm_id].count;
+	    }
+	}
+    }
+/*
+static int  first = 1;
+if (phase == 3 && first) {
+    for (i = 0; i < n; i++)
+	printf("cbm_count[%d]: %d\n", counts[i].id, counts[i].count);
+    first = 0;
+}
+*/    
+    free(counts);
+}
+
+
+int fill_pool(int top, int bottom, int left, int right, int pop_cbm, int pop_count)
+{
+    partition_t	    *p;
+
+    // empty partition
+    if ((bottom <= top) || (right <= left))
+	return 0;
     // don't consider partitions smaller than a block
     if ((bottom - top < BLOCKSIZE) && (right - left < BLOCKSIZE))
 	return 0;
 
     if (workpool_len == workpool_size) {
 	workpool_size += workpool_size >> 1;
-	printf("workpoll[%d] size: %d\n", workpool_id, workpool_size);
+	//printf("workpool[%d] size: %d\n", workpool_id, workpool_size);
 	workpool = realloc(workpool, workpool_size * sizeof(partition_t));
     }
-    workpool[workpool_len].top = top;
-    workpool[workpool_len].bottom = bottom;
-    workpool[workpool_len].left = left;
-    workpool[workpool_len].right = right;
-    workpool[workpool_len].size = (bottom - top) * (right - left);
-    workpool[workpool_len].row_bound = bottom;
-    workpool[workpool_len].col_bound = right;
+    p = &workpool[workpool_len];
+    p->top = top;
+    p->bottom = bottom;
+    p->left = left;
+    p->right = right;
+    p->size = (bottom - top) * (right - left);
+    p->row_bound = bottom;
+    p->col_bound = right;
+
+    if (pop_count > 0) {
+	p->pop_cbm = pop_cbm;
+	p->pop_count = pop_count;
+    } else {
+	get_pop_cbm(p);
+    }
+
     workpool_len++;
 
     return 1;
 }
 
 
-partition_t* draw_partition()
+partition_t* draw_pool()
 {
+    if (workpool_len == 0)
+	return NULL;
+
     return &workpool[0];
-}
-
-
-void get_pop_cbm(partition_t *p)
-{
-    int	    i, j, n = num_cbms[phase][chunk], cbm1_id, cbm2_id, cbm_id;
-    int	    *table = phase_tables[phase][chunk];
-    id_count_t	*counts = calloc(n, sizeof(id_count_t));
-
-    for (i = p->top; i < p->bottom; i++) {
-	cbm1_id = phase_cbms[ph1][ch1][i].id;
-	for (j = p->left; j < p->right; j++) {
-	    cbm2_id = phase_cbms[ph2][ch2][j].id;
-	    cbm_id = table[cbm1_id * num_cbms[ph2][ch2] + cbm2_id];
-	    counts[cbm_id].count++;
-	}
-    }
-    qsort(counts, n, sizeof(id_count_t), id_count_cmp);
-    
-    p->pop_cbm = counts[0].id;
-
-    free(counts);
 }
 
 
@@ -547,18 +575,20 @@ void form_pop_partition(partition_t *p)
 
 int trim_pop_partition(partition_t *p)
 {
-    int	    i, row_avg = 0, col_avg = 0, trimed = 0;
+    int	    i, row_avg_half = 0, col_avg_half = 0, trimed = 0;
 
     for (i = p->top; i < p->row_bound; i++)
-	row_avg += phase_cbms[ph1][ch1][i].order;
-    row_avg = row_avg / (p->row_bound - p->top);
+	row_avg_half += phase_cbms[ph1][ch1][i].order;
+    row_avg_half = row_avg_half / (p->row_bound - p->top);
+    row_avg_half >>= 1;
 
     for (i = p->left; i < p->col_bound; i++)
-	col_avg += phase_cbms[ph2][ch2][i].order;
-    col_avg = col_avg / (p->col_bound - p->left);
+	col_avg_half += phase_cbms[ph2][ch2][i].order;
+    col_avg_half = col_avg_half / (p->col_bound - p->left);
+    col_avg_half >>= 1;
     
     for (i = p->row_bound - 1; i > p->top; i--) {
-	if (phase_cbms[ph1][ch1][i].order >= row_avg)
+	if (phase_cbms[ph1][ch1][i].order >= row_avg_half)
 	    break;
     }
     if (i + 1 < p->row_bound) {
@@ -567,21 +597,23 @@ int trim_pop_partition(partition_t *p)
     }
     
     for (i = p->col_bound - 1; i > p->left; i--) {
-	if (phase_cbms[ph2][ch2][i].order >= col_avg)
+	if (phase_cbms[ph2][ch2][i].order >= col_avg_half)
 	    break;
     }
-    if (i + 1 < p->row_bound) {
+    if (i + 1 < p->col_bound) {
 	p->col_bound = i + 1;
 	trimed = 1;
     }
+
+    return trimed;
 }
 
 
-static int partition_size_cmp(const void *p, const void *q)
+static int pop_cmp(const void *p, const void *q)
 {
-    if (((partition_t *)q)->size > ((partition_t *)p)->size)
+    if (((partition_t *)q)->pop_count > ((partition_t *)p)->pop_count)
 	return 1;
-    else if (((partition_t *)q)->size < ((partition_t *)p)->size)
+    else if (((partition_t *)q)->pop_count < ((partition_t *)p)->pop_count)
 	return -1;                                                     
     else
 	return 0;                                                                                   
@@ -594,16 +626,19 @@ void update_partition_pool(partition_t *p)
     partition_t	*p1;
 
     // 0. switch the working partition set
+    pools_len[workpool_id] = workpool_len;
+    pools_size[workpool_id] = workpool_size;
     partition_pools[workpool_id] = workpool;
+
     workpool_id = !workpool_id;
     workpool = partition_pools[workpool_id];
-    workpool_len = 0;
     workpool_size = pools_size[workpool_id];
+    workpool_len = 0;
 
     // 1. add the three non-pop CBM sub-partitions into the alternative partition set
-    add_partition(p->top, p->row_bound, p->col_bound, p->right);    // top-right sub partition
-    add_partition(p->row_bound, p->bottom, p->left, p->col_bound);  // bottom-left sub partition
-    add_partition(p->row_bound, p->bottom, p->col_bound, p->right); // bottom-left sub partition
+    fill_pool(p->top, p->row_bound, p->col_bound, p->right, 0, 0);    // top-right sub partition
+    fill_pool(p->row_bound, p->bottom, p->left, p->col_bound, 0, 0);  // bottom-left sub partition
+    fill_pool(p->row_bound, p->bottom, p->col_bound, p->right, 0, 0); // bottom-left sub partition
 
     // 2. for each partition in previous working set, add it or its two halves splitted by this
     //    partitioning into the new working set
@@ -611,45 +646,59 @@ void update_partition_pool(partition_t *p)
     for (i = 1; i < pools_len[oldpool_id]; i++) {
 	p1 = &partition_pools[oldpool_id][i];
 	if (p1->top < p->row_bound && p1->bottom > p->row_bound) {	    // horizontal splitted halves
-	    add_partition(p1->top, p->row_bound, p1->left, p1->right);
-	    add_partition(p->row_bound, p1->bottom, p1->left, p1->right);
+	    fill_pool(p1->top, p->row_bound, p1->left, p1->right, 0, 0);
+	    fill_pool(p->row_bound, p1->bottom, p1->left, p1->right, 0, 0);
 	} else if (p1->left < p->col_bound && p1->right > p->col_bound) {   // veritical splitted halves
-	    add_partition(p1->top, p1->bottom, p1->left, p->col_bound);
-	    add_partition(p1->top, p1->bottom, p1->col_bound, p1->right);
+	    fill_pool(p1->top, p1->bottom, p1->left, p->col_bound, 0, 0);
+	    fill_pool(p1->top, p1->bottom, p1->col_bound, p1->right, 0, 0);
 	} else {    // not splitted, add itself to the workpool
-	    add_partition(p1->top, p1->bottom, p1->left, p1->right);
+	    fill_pool(p1->top, p1->bottom, p1->left, p1->right, p1->pop_cbm, p1->pop_count);
 	}
     }
 
-    // 3. sort partitions in the work pool w.r.t. their sizes
-    qsort(workpool, workpool_len, sizeof(partition_t), partition_size_cmp);
+    // 3. sort partitions in the work pool w.r.t. their counts on their most populous CBMS
+    qsort(workpool, workpool_len, sizeof(partition_t), pop_cmp);
 }
 
 
 void table_partition()
 {
-    int		    trimed;
-    partition_t	    *p;
+    int		trimed, ndrawn = 1;
+    partition_t	*p;
 
     partition_pools[0] = malloc(256 * sizeof(partition_t));
     partition_pools[1] = malloc(256 * sizeof(partition_t));
     pools_size[0] = pools_size[1] = 256;
-
+    pools_len[0] = pools_len[1] = 0;
+    
+    workpool_id = 0;
     workpool = partition_pools[0];
     workpool_size = pools_size[0];
+    workpool_len = 0;
 
-    add_partition(0, num_cbms[ph1][ch1], 0, num_cbms[ph2][ch2]);
+    fill_pool(0, num_cbms[ph1][ch1], 0, num_cbms[ph2][ch2], 0, 0);
 
-    p = draw_partition();
+    p = draw_pool();
+    ndrawn = 1;
     while (p != NULL) {
-	get_pop_cbm(p);
+	if (p->pop_count < BLOCKSIZE)	
+	    break;	// too few pop CBMS to shuffle, and other partitions have even less pop CBMs
+
 	do {
 	    form_pop_partition(p);
 	    trimed = trim_pop_partition(p);
 	} while (trimed);
+	/*
+	if (phase == 3) {
+	    printf("pop: %d/#%d: (r%d, r%d, c%d, c%d), bounds: (%d, %d)\n", 
+		    p->pop_cbm, p->pop_count, p->top, p->bottom, p->left, p->right, p->row_bound, p->col_bound);
+	}
+	*/
 	update_partition_pool(p);
-	p = draw_partition();
+	p = draw_pool();
+	ndrawn++;
     }
+    //printf("table[%d][%d]: %d partitions processed\n", phase, chunk, ndrawn);
 }
 
 
@@ -710,13 +759,13 @@ void crossprod_2chunk()
     cbm_t	*cbms1, *cbms2;
 
 
-    n1 = num_cbms[0][1];
-    n2 = num_cbms[0][0];
+    n1 = num_cbms[ph1][ch1];
+    n2 = num_cbms[ph2][ch2];
     n = n1 * n2;
-    cbms1 = phase_cbms[0][1];
-    cbms2 = phase_cbms[0][0];
-    phase_table_sizes[1][0] = n;
-    phase_tables[1][0] = (int *) malloc(n * sizeof(int));
+    cbms1 = phase_cbms[ph1][ch1];
+    cbms2 = phase_cbms[ph2][ch2];
+    phase_table_sizes[phase][chunk] = n;
+    phase_tables[phase][chunk] = (int *) malloc(n * sizeof(int));
 
     init_cbm_hash();
 
@@ -755,11 +804,11 @@ void crossprod_2chunk()
 	    }
 	}
     }
+    printf("Chunk[%d]: %d CBMs in Table[%d]\n", chunk, num_cbms[phase][chunk], n);
 
     n = num_cbms[phase][chunk];
     phase_cbms[phase][chunk] = (cbm_t *) realloc(phase_cbms[phase][chunk], n * sizeof(cbm_t));
 
-    printf("Chunk[%d]: %d CBMs in Table[%d]\n", 0, num_cbms[phase][chunk], n);
 
     free_cbm_hash();
 }
@@ -994,48 +1043,48 @@ int collect_interval_rules(int ch, int point1, int point2, uint16_t *rules, int 
 
 // phase 0: generate CBMs for a chunk in phase 0, and populate the corresponding phase table with
 // the corresponding CBM ids
-void gen_cbms(int ch)
+void gen_cbms()
 {
     uint16_t	rules[MAXRULES], nrules; 
     int		rulesum, point, next_point, cbm_id, i, j, table_size = 65536;
 
 
-    //phase_table_sizes[0][ch] = table_size;
-    //phase_tables[0][ch] = (int *) calloc(table_size, sizeof(int));
+    //phase_table_sizes[0][chunk] = table_size;
+    //phase_tables[0][chunk] = (int *) calloc(table_size, sizeof(int));
 
     init_cbm_hash();
 
-    for (i = 0; i < num_epoints[ch]; i++) {
+    for (i = 0; i < num_epoints[chunk]; i++) {
 	// 1. Collect rules covering an end-point, then create a CBM or match an existing CBM for it
-	point = epoints[ch][i];
-	nrules = collect_epoint_rules(ch, point, rules, &rulesum);
-	cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[0][ch]);
+	point = epoints[chunk][i];
+	nrules = collect_epoint_rules(chunk, point, rules, &rulesum);
+	cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[0][chunk]);
 	if (cbm_id < 0)
 	    cbm_id = new_cbm(rules, nrules, rulesum);
-	//phase_tables[0][ch][point] = cbm_id;
+	//phase_tables[0][chunk][point] = cbm_id;
 
 	// no point interval for the last point, finish the loop
-	if (i == num_epoints[ch] - 1)
+	if (i == num_epoints[chunk] - 1)
 	    break;
 
-	next_point = epoints[ch][i+1];
+	next_point = epoints[chunk][i+1];
 	// if no interval between [point, next_point], don't do part 2
 	if (next_point - point > 1)
 	    continue;
 
 	// 2. Collect rules covering interval [point, next_point], 
 	// then create a CBM or match an existing CBM for it
-	nrules = collect_interval_rules(ch, point, next_point, rules, &rulesum);
-	cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[0][ch]);
+	nrules = collect_interval_rules(chunk, point, next_point, rules, &rulesum);
+	cbm_id = cbm_lookup(rules, nrules, rulesum, phase_cbms[0][chunk]);
 	if (cbm_id < 0)
 	    cbm_id = new_cbm(rules, nrules, rulesum);
 	/*
 	for (j = point+1; j < next_point; j++) {
-	    phase_tables[0][ch][j] = cbm_id;
+	    phase_tables[0][chunk][j] = cbm_id;
 	}
 	*/
     }
-    printf("Chunk[%d]: %d CBMs\n", ch, num_cbms[0][ch]);
+    printf("Chunk[%d]: %d CBMs\n", chunk, num_cbms[0][chunk]);
 
     free_cbm_hash();
 }
@@ -1044,10 +1093,9 @@ void gen_cbms(int ch)
 // phase 0: generate phase tables for phase 0
 int gen_p0_tables()
 {
-    int		ch;
-
-    for (ch = 0; ch < MAXCHUNKS; ch++) {
-	gen_cbms(ch);
+    phase = 0;
+    for (chunk = 0; chunk < MAXCHUNKS; chunk++) {
+	gen_cbms();
     }
     total_table_size = 65536 * 7 * sizeof(int);
     //dump_intersect_stats();
@@ -1817,7 +1865,7 @@ int p3_crossprod()
     table_partition();
     update_cbm_runs();
     total_block_table_size += construct_block_tables();
-    printf("After sorting...\n");
+    //printf("After sorting...\n");
     //dump_table();
     //dump_cbm_runs();
 

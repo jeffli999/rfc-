@@ -109,5 +109,6 @@ typedef struct {
     int	top, bottom, left, right;
     int	size;
     int pop_cbm;    // the most populous CBM in this partition
+    int	pop_count;  // the count of the most populous CBM in this partition
     int	row_bound, col_bound;	// row & col bounds of the sub-partition w.r.t partitioning on pop_cbm
 } partition_t;
